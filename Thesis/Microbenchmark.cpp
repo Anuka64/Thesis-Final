@@ -16,7 +16,7 @@
 
 
 //cottercness tolarent helper
-static inline bool almost_equal(unit64_t gpu, unit64_t cpu,
+static inline bool almost_equal(uint64_t gpu, uint64_t cpu,
 	double atol = 1e-6, double rtol = 1e-5) 
 {
     double dg = double(gpu);
@@ -582,12 +582,13 @@ int main(int argc, char** argv) {
             total_cnt += h_cnt[g];
 
             if (uint64_t(h_cnt[g]) != cpu_cnt[g] || 
-                ! almost_equal (uint64_t(h_sum[g]), cpu_sum[g]) {
+                !almost_equal(uint64_t(h_sum[g]), cpu_sum[g])) 
+            {
                 correct = false;
                 std::cerr << "Group " << g 
                           << " cpu_cnt=" << cpu_cnt[g] 
                           << " gpu_cnt=" << h_cnt[g]
-					      << " cpu_sum=" << cpu_sum[g]
+                          << " cpu_sum=" << cpu_sum[g]
                           << " gpu_sum=" << h_sum[g] << "\n";
                 break;
             }
