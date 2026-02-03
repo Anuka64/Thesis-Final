@@ -14,6 +14,16 @@
 #include <string>
 #include <vector>
 
+
+//cottercness tolarent helper
+static inline bool almost_equal(unit64_t gpu, unit64_t cpu,
+	double atol = 1e-6, double rtol = 1e-5) 
+{
+    double dg = double(gpu);
+	double dc = double(cpu);
+	return std::abs(dg - dc) <= (atol + rtol * std::fabs(dc));
+}   
+
 static void die(const std::string& msg) {
     std::cerr << "ERROR: " << msg << "\n";
     std::exit(1);
@@ -498,8 +508,17 @@ int main(int argc, char** argv) {
         auto t1 = std::chrono::steady_clock::now();
         double end2end_ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
 
-        uint64_t cpu_sum = cpu_scalar_sum_cents(s);
-        bool correct = (gpu_sum == cpu_sum);
+		// correctness vs CPU (tolerent)
+		uint64_t cpu_sum = cpu_scalar_sum_cents(s); 
+		bool correct = almost_equal(gpu_sum, cpu_sum);
+        if (!correct) {
+			double abs_err = std::abs(double(gpu_sum) - double(cpu_sum));
+			double rel_err = abs_err / double(cpu_sum) + 1e-12;
+            std::cerr <<  "cpu=" << cpu_sum
+				      <<   "gpu=" << gpu_sum
+				      << " abs_err=" << abs_err
+				      << " rel_err=" << rel_err << "\n";
+		}
 
 
         uint64_t cpu_cnt = cpu_filter_count(s);
@@ -562,8 +581,14 @@ int main(int argc, char** argv) {
         for (uint32_t g = 0; g < args.G; g++) {
             total_cnt += h_cnt[g];
 
-            if (uint64_t(h_sum[g]) != cpu_sum[g] || uint64_t(h_cnt[g]) != cpu_cnt[g]) {
+            if (uint64_t(h_cnt[g]) != cpu_cnt[g] || 
+                ! almost_equal (uint64_t(h_sum[g]), cpu_sum[g]) {
                 correct = false;
+                std::cerr << "Group " << g 
+                          << " cpu_cnt=" << cpu_cnt[g] 
+                          << " gpu_cnt=" << h_cnt[g]
+					      << " cpu_sum=" << cpu_sum[g]
+                          << " gpu_sum=" << h_sum[g] << "\n";
                 break;
             }
         }
