@@ -2,7 +2,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 # Load CSV
-df = pd.read_csv("results.csv")
+df = pd.read_csv("micro_results.csv")
 
 # Keep only correct runs
 df = df[df["correct"] == 1]
