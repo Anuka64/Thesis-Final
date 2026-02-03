@@ -202,6 +202,21 @@ static std::string device_name(cl_device_id dev) {
     return s;
 }
 
+static std::string device_vendor(cl_device_id dev) {
+    size_t sz = 0;
+    check(clGetDeviceInfo(dev, CL_DEVICE_EXTENSIONS, 0, nullptr, &sz), 
+        "clGetDeviceInfo(EXTENSIONS,size)");
+    std::string s(sz, '\0');
+    check(clGetDeviceInfo(dev, CL_DEVICE_EXTENSIONS, sz, s.data(), nullptr),
+        "clGetDeviceInfo(EXTENSIONS)");
+    while (!s.empty() && (s.back() == '\0' || s.back() == '\n' || s.back() == '\r')) s.pop_back();
+    return s;
+}
+
+static bool has_ext(const std::string& exts, const std::string& name) {
+	return exts.find(name) != std::string::npos;
+}
+
 static void write_csv_header_if_needed(const std::string& path) {
     std::ifstream in(path);
     if (in.good() && in.peek() != std::ifstream::traits_type::eof()) return;
@@ -273,6 +288,12 @@ int main(int argc, char** argv) {
     cl_int err = CL_SUCCESS;
     cl_device_id dev = pick_gpu_device();
     std::cout << "Device: " << device_name(dev) << "\n";
+
+	std::string exts = device_vendor(dev);
+	bool has_int64_atomics = 
+         has_ext(exts, "cl_khr_int64_base_atomics") || 
+         has_ext(exts, "cl_intel_int64_base_atomics");
+	std::cout << "  int64 atomics: " << (has_int64_atomics ? "yes" : "no") << "\n";
 
     cl_context ctx = clCreateContext(nullptr, 1, &dev, nullptr, nullptr, &err);
     check(err, "clCreateContext");
@@ -583,11 +604,11 @@ int main(int argc, char** argv) {
         }
 		double sel_ach = double(total_cnt) / double(args.N);
 
-        bool correct = true;
+         bool correct = true;
 		for (uint32_t g = 0; g < args.G; g++) {
             if (uint64_t(h_cnt[g]) != cpu_cnt[g]) {
 
-                bool correct = false;
+                correct = false;
                 std::cerr << "Group " << g 
                           << " cpu_cnt=" << cpu_cnt[g] 
                           << " gpu_cnt=" << h_cnt[g] << "\n";
