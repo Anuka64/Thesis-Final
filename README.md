@@ -1,8 +1,7 @@
-Thesis Masters Thesis
 
 #Repo structure
 
-#Thesis (main codes) |   
+#Thesis (main codes) 
 -microbenchmark 
 ----Operator level OpenCL microbenchmarks (scan+filter, Projection+compaction, scaler aggregation, group-by aggregation)--Runs on synthetic data, not actual TPC-H data. (To isolate from all the dependencies and measure GPU kernel performance)
 
@@ -38,4 +37,11 @@ Thesis Masters Thesis
 - Set the location of the data Source
     - Go to visual studio -> Solution Explorer -> Properties -> Configuration Properties -> Debugging -> Command Arguments : C:\TPC-H-V3.0.1\dbgen\lineitem.tbl (location of your data table)
     - General -> Configuration type : Application (.exe)
+ 
+# Command to run and produce plots from spripts 
+
+- Install python library : pip install pandas matplotlib (from comman promt)
+- Put all the CSV result and plot scripts in the same file then run in cmd : python 'script_name'.py  (e.g python plot_microbenchmark.py)
+
+
       
