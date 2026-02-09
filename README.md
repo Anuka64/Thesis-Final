@@ -41,7 +41,7 @@
 # Command to run and produce plots from spripts 
 
 - Install python library : pip install pandas matplotlib (from comman promt)
-- Put all the CSV result and plot scripts in the same file then run in cmd : python 'script_name'.py  (e.g python plot_microbenchmark.py)
+- Put all the CSV result and plot scripts in the same file then run in cmd : python 'script_name'.py  'csv_file_name.csv' (e.g python plot_microbenchmark.py result.csv)
 
 
       
