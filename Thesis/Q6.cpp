@@ -225,6 +225,7 @@ static cl_device_id pick_device(cl_platform_id platform) {
 }
 
 //  selectivity W for Q6 targets 
+static int calibrate_W_for_target(
     const std::vector<int>& ship_day_sorted,
     int D0_day,
     double target_s
@@ -375,13 +376,14 @@ int main(int argc, char** argv) {
 
     // ---------- Output CSV ----------
     std::ofstream csv("q6_results.csv");
-    csv << "target_s,window_days_W,lo_day,hi_day,achieved_s,"
-        << "kernel_ms_min, kernel_ms_med, kernel_ms_max,"
-        << "wall_ms_med, overhead_ms, overhead_pct,"
-        << "d2h_ms, cpu_finalize_ms,"
-        << "thread_utilization_pct, wasted_threads_pct,"
-        << "data_efficiency_pct, useful_data_MB, total_data_MB,"
-        << "theoritical_GBps_med,abs_error\n";
+    csv << "target_selectivity,window_days,start_day,end_day,achieved_selectivity,"
+        << "kernel_ms_min,kernel_ms_median, kernel_ms_max,"
+		<< "total_execution_time_median,overhead_ms,overhead_percentage, "
+        << "gpu_to_cpu_transfer_in_ms,cpu_reduction_time_in_ms,"
+        << "thread_utilization_percentage,wasted_threads_percentage,"
+        << "data_efficiency_percentage,useful_data_MB, total_data_MB,"
+        << "bandwidth_GB_per_sec,"
+        << "cpu_result,gpu_result,abs_error\n";
     csv << std::fixed << std::setprecision(9);
 
     // Detailed timing
@@ -518,7 +520,7 @@ int main(int argc, char** argv) {
             << thread_utilization_pct << "," << wasted_threads_pct << ","
             << data_efficiency_pct << "," << useful_data_MB << "," << total_data_MB << ","
             << theoritical_gbps_med << ","
-            << abs_err << "\n";
+            << cpu_sum << "," <<gpu_sum << "," << abs_err << "\n";
 
         std::cout << std::fixed << std::setprecision(3);
         std::cout << "target_s=" << s
