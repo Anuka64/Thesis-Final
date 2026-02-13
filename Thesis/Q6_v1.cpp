@@ -113,7 +113,7 @@ static void load_lineitem_needed(
 
             if (field == 4) q = std::stof(f);
             else if (field == 5) p = std::stof(f);
-            else if (field == 6) d = std::stof(f);
+			else if (field == 6) d = std::stof(f);
             else if (field == 10) { shipdate_str = f; break; }
 
             field++;
@@ -127,7 +127,7 @@ static void load_lineitem_needed(
         maxYMD = std::max(maxYMD, ymd);
 
         int di = days_since_epoch(parse_ymd(shipdate_str));
-        quantity.push_back(q);
+		quantity.push_back(q);
         price.push_back(p);
         discount.push_back(d);
         ship_day.push_back(di);
@@ -138,7 +138,7 @@ static void load_lineitem_needed(
 // ---------------- CPU reference Q6 
 
 static double cpu_q6(
-    const std::vector<float>& quantity,
+	const std::vector<float>& quantity,
     const std::vector<float>& price,
     const std::vector<float>& discount,
     const std::vector<int>& ship_day,
@@ -150,7 +150,7 @@ static double cpu_q6(
     for (size_t i = 0; i < N; i++) {
         if (ship_day[i] >= lo_day && ship_day[i] < hi_day &&
             discount[i] >= 0.03f && discount[i] <= 0.09f &&
-            quantity[i] < 28.0f) {
+            quantity[i]< 28.0f){
             sum += double(price[i]) * double(discount[i]);
         }
     }
@@ -163,7 +163,7 @@ static double compute_data_efficiency(uint64_t passing_rows, uint64_t total_rows
     return double(passing_rows) / double(total_rows);
 }
 static uint64_t cpu_q6_count(
-    const std::vector<float>& quantity,
+	const std::vector<float>& quantity,
     const std::vector<int>& ship_day,
     const std::vector<float>& discount,
     int lo_day,
@@ -250,33 +250,33 @@ static cl_device_id pick_device(cl_platform_id platform) {
 //  selectivity W for Q6 targets 
 
 static int calibrate_W_for_target(
-    const std::vector<float>& quantity,
+	const std::vector<float>& quantity,
     const std::vector<int>& ship_day_sorted,
     const std::vector<float>& discount_sorted, // <-- add this parameter
     int D0_day,
     double target_s
 ) {
     const size_t N = ship_day_sorted.size();
-    if (N == 0) return -1;
+	if (N == 0) return -1;
 
     size_t max_idx = ship_day_sorted.size() - 1;
     if (D0_day > ship_day_sorted[max_idx]) {
-        return -1;
+		return -1;
     }
 
     auto geq_it = std::lower_bound(ship_day_sorted.begin(), ship_day_sorted.end(), D0_day);
     size_t start_idx = std::distance(ship_day_sorted.begin(), geq_it);
 
-    uint64_t target_passing = (uint64_t)(target_s * double(N) + 0.5);
-    if (target_passing == 0) target_passing = 1;
+	uint64_t target_passing = (uint64_t)(target_s * double(N) + 0.001);
+	if (target_passing == 0) target_passing = 1;
 
-    uint64_t cnt_so_far = 0;
-    int best_W = -1;
+	uint64_t cnt_so_far = 0;
+	int best_W = -1;    
 
     for (size_t i = start_idx; i < N; i++) {
         int current_end_day = ship_day_sorted[i];
         if (discount_sorted[i] >= 0.03f && discount_sorted[i] <= 0.09f &&
-            quantity[i] < 28.0f) {
+            quantity[i] < 28.0f) {  
             cnt_so_far++;
             if (cnt_so_far >= target_passing) {
                 best_W = current_end_day - D0_day + 1;
@@ -326,20 +326,20 @@ int main(int argc, char** argv) {
     std::vector<size_t> indices(N);
     for (size_t i = 0; i < N; i++) {
         indices[i] = i;
-    }
+	}
     std::sort(indices.begin(), indices.end(), [&](size_t a, size_t b) {
         return ship_day[a] < ship_day[b];
-        });
-    std::vector<float> quantity_sorted(N);
+		}); 
+    std::vector<float> quantity_sorted(N);  
     std::vector<int> ship_day_sorted(N);
     std::vector<float> discount_sorted(N);
     for (size_t i = 0; i < N; i++) {
-        quantity_sorted[i] = quantity[indices[i]];
+        quantity_sorted[i] = quantity[indices[i]];  
         ship_day_sorted[i] = ship_day[indices[i]];
         discount_sorted[i] = discount[indices[i]];
     }
 
-    const std::vector<double> targets = { 0.0001, 0.001, 0.01, 0.05, 0.1, 0.25, 0.5, 1.0 };
+    const std::vector<double> targets = {0.5}; 
 
     // ---------- OpenCL setup ----------
     cl_platform_id platform;
@@ -402,8 +402,8 @@ int main(int argc, char** argv) {
 
 
     // Warmup + repetitions
-    const int WARMUP = 20;
-    const int REPS = 50;
+    const int WARMUP = 0;
+    const int REPS = 1;
 
     std::vector<uint64_t> partials(num_groups);
 
@@ -411,7 +411,7 @@ int main(int argc, char** argv) {
     std::ofstream csv("q6_results.csv");
     csv << "target_selectivity,window_days,start_day,end_day,achieved_selectivity,"
         << "kernel_ms_min,kernel_ms_median, kernel_ms_max,"
-        << "total_execution_time_median,overhead_ms,overhead_percentage, "
+		<< "total_execution_time_median,overhead_ms,overhead_percentage, "
         << "gpu_to_cpu_transfer_in_ms,cpu_reduction_time_in_ms,"
         << "thread_utilization_percentage,wasted_threads_percentage,"
         << "data_efficiency_percentage,useful_data_MB, total_data_MB,"
@@ -485,7 +485,7 @@ int main(int argc, char** argv) {
         }
 
         const int lo_day = D0_day;
-        const int hi_day = D0_day + W;
+        const int hi_day = D0_day + W; 
 
         // warmup
         for (int i = 0; i < WARMUP; i++) {
@@ -497,35 +497,35 @@ int main(int argc, char** argv) {
         timings.reserve(REPS);
         for (int r = 0; r < REPS; r++) {
             timings.push_back(launch_once_detailed(lo_day, hi_day, partials));
-            sleep_ms(200);
-
+            
+            
         }
         //sorted by kernel time
 
         std::sort(timings.begin(), timings.end(), [](const TimingResult& a, const TimingResult& b) {
             return a.kernel_ms < b.kernel_ms;
             });
-
-        const size_t remove_count = timings.size() * 35 / 100;
+        
+		const size_t remove_count = timings.size() * 35 / 100;  
 
         std::vector<TimingResult> filtered_kernel;
         for (size_t i = remove_count; i < timings.size() - remove_count; i++) {
             filtered_kernel.push_back(timings[i]);
-        }
+		}   
 
         const double ms_min = filtered_kernel.front().kernel_ms;
         const double ms_max = filtered_kernel.back().kernel_ms;
         const double ms_med = filtered_kernel[filtered_kernel.size() / 2].kernel_ms;
 
-        std::vector<TimingResult> timings_by_wall = timings;
+		std::vector<TimingResult> timings_by_wall = timings;
         std::sort(timings_by_wall.begin(), timings_by_wall.end(), [](const TimingResult& a, const TimingResult& b) {
             return a.wall_ms < b.wall_ms;
-            });
-        std::vector<TimingResult> filtered_wall;
+			});
+		std::vector<TimingResult> filtered_wall;
         for (size_t i = remove_count; i < timings_by_wall.size() - remove_count; i++) {
             filtered_wall.push_back(timings_by_wall[i]);
         }
-
+        
         const double wall_ms_med = filtered_wall[filtered_wall.size() / 2].wall_ms;
         const double d2h_ms_med = filtered_wall[filtered_wall.size() / 2].d2h_ms;
         const double cpu_finalize_ms_med = filtered_wall[filtered_wall.size() / 2].cpu_finalize_ms;
@@ -572,7 +572,7 @@ int main(int argc, char** argv) {
             << thread_utilization_pct << "," << wasted_threads_pct << ","
             << data_efficiency_pct << "," << useful_data_MB << "," << total_data_MB << ","
             << theoritical_gbps_med << ","
-            << cpu_sum << "," << gpu_sum << "," << abs_err << "\n";
+            << cpu_sum << "," <<gpu_sum << "," << abs_err << "\n";
 
         std::cout << std::fixed << std::setprecision(3);
         std::cout << "target_s=" << s
@@ -591,7 +591,7 @@ int main(int argc, char** argv) {
     std::cout << "Wrote q6_results.csv\n";
 
     // ---------- Cleanup ----------
-    clReleaseMemObject(d_quantity);
+	clReleaseMemObject(d_quantity);
     clReleaseMemObject(d_price);
     clReleaseMemObject(d_discount);
     clReleaseMemObject(d_shipday);

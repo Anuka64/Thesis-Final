@@ -4,6 +4,17 @@ import matplotlib.pyplot as plt
 def load_data(csv_file='q6_results.csv'):
     df = pd.read_csv(csv_file)
     df.columns = df.columns.str.strip()
+    column_mapping = {
+        'achieved_selectivity': 'achieved_s',
+        'kernel_ms_median': 'kernel_ms_med',
+        'total_execution_time_median': 'wall_ms_med',
+        'overhead_percentage': 'overhead_pct',
+        'thread_utilization_percentage': 'thread_utilization_pct',
+        'data_efficiency_percentage': 'data_efficiency_pct',
+        'bandwidth_GB_per_sec': 'theoritical_GBps_med'
+    }
+
+    df = df.rename(columns=column_mapping)
     df['sel_pct'] = df['achieved_s'] * 100  # convert to percentage
     return df
 
@@ -103,24 +114,24 @@ def RQ4_strategy_zones(df):
     
     # Color-coded strategy zones
     ax.axvspan(0.001, 0.1, alpha=0.2, color='red')
-    ax.axvspan(0.1, 5, alpha=0.2, color='yellow')
-    ax.axvspan(5, 100, alpha=0.2, color='green')
+    ax.axvspan(0.1, 2, alpha=0.2, color='yellow')
+    ax.axvspan(2, 10, alpha=0.2, color='green')
     
     # Plot kernel time
     ax.plot(df['sel_pct'], df['kernel_ms_med'], 'o-', linewidth=3, 
             markersize=10, color='black', label='Kernel Time')
     
     # Add zone labels
-    ax.text(0.01, ax.get_ylim()[1]*0.95, 'Very Low\n(<0.1%)\nHigh overhead', 
+    ax.text(0.015, ax.get_ylim()[1]*0.95, 'Very Low\n(<0.1%)\nHigh overhead', 
             ha='center', fontsize=10, bbox=dict(boxstyle='round', facecolor='red', alpha=0.3))
-    ax.text(0.5, ax.get_ylim()[1]*0.95, 'Low-Medium\n(0.1-5%)\nModerate', 
+    ax.text(0.6, ax.get_ylim()[1]*0.95, 'Low-Medium\n(0.1-2%)\nModerate', 
             ha='center', fontsize=10, bbox=dict(boxstyle='round', facecolor='yellow', alpha=0.3))
-    ax.text(15, ax.get_ylim()[1]*0.95, 'Medium-High\n(>5%)\nGPU Recommended', 
+    ax.text(5, ax.get_ylim()[1]*0.95, 'Medium-High\n(2-9%)\nGPU Recommended', 
             ha='center', fontsize=10, bbox=dict(boxstyle='round', facecolor='green', alpha=0.3))
     
     ax.set_xlabel('Selectivity (%)', fontsize=12)
     ax.set_ylabel('Kernel Time (ms)', fontsize=12)
-    ax.set_title('Execution Strategy Zones\n(Based on performance and overhead)', 
+    ax.set_title('Execution Strategy Zones\n(Covering 0.01% to 25% Selectivity Range)', 
                  fontsize=14, fontweight='bold')
     ax.set_xscale('log')
     ax.legend()
