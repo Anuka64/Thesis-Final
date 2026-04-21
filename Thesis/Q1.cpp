@@ -69,7 +69,7 @@ struct Aggregates {
 };
 
 // data loading ------------------------
-static void load_lineitem_needed(
+static void load_lineitem(
     const std::string& path,
     std::vector<float>& quantity,
     std::vector<float>& price,
@@ -94,8 +94,8 @@ static void load_lineitem_needed(
     while (std::getline(in, line)) {
         int field = 0;
         size_t start = 0;
-
-        float p = 0.0f, d = 0.0f;
+        float q = 0.0f, p = 0.0f, d = 0.0f, t = 0.0f;
+        uint8_t rf = 0, ls = 0;
         std::string shipdate_str;
 
         while (true) {
@@ -103,8 +103,12 @@ static void load_lineitem_needed(
             if (pos == std::string::npos) break;
             std::string f = line.substr(start, pos - start);
 
-            if (field == 5) p = std::stof(f);
+            if (field == 4) p = std::stof(f);
+            else if (field == 5) p = std::stof(f);
             else if (field == 6) d = std::stof(f);
+            else if (field == 7) t = std::stof(f);
+            else if (field == 8) rf = f.empty() ? 0 : (uint8_t)f[0];
+            else if (field == 9) ls = f.empty() ? 0 : (uint8_t)f[0];
             else if (field == 10) { shipdate_str = f; break; }
 
             field++;
@@ -117,81 +121,86 @@ static void load_lineitem_needed(
         minYMD = std::min(minYMD, ymd);
         maxYMD = std::max(maxYMD, ymd);
 
-        int di = days_since_epoch(parse_ymd(shipdate_str));
+        quantity.push_back(q);
         price.push_back(p);
         discount.push_back(d);
-        ship_day.push_back(di);
+        tax.push_back(t);
+        returnflag.push_back(rf);
+        linestatus.push_back(ls);
+        shipdate.push_back(ymd);
     }
 }
 
 // ---------------- CPU reference Q1
 
 static double cpu_q1(
+    const std::vector<float>& quantity,
     const std::vector<float>& price,
     const std::vector<float>& discount,
+    const std::vector<float>& tax,
+    const std::vector<uint8_t>& returnflag,
+    const std::vector<uint8_t>& linestatus,
     const std::vector<int>& shipdate,
-    int lo_day,
-    int hi_day
-) {
-    double sum = 0.0;
-    const size_t N = price.size();
+    int cutoff_ymd,
+    std::map<GroupKey, Aggregates>& groups,
+    uint64_t& matched_count)
+{
+    groups.clear();
+    matched_count = 0;
+    const size_t N = shipdate.size();
+
     for (size_t i = 0; i < N; i++) {
-        if (ship_day[i] >= lo_day && ship_day[i] < hi_day &&
-            discount[i] >= 0.05f && discount[i] <= 0.07f) {
-            sum += double(price[i]) * double(discount[i]);
+        if (shipdate[i] <= cutoff_ymd) {
+            matched_count++;
+            GroupKey k{ returnflag[i], linestatus[i] };
+
+            float disc_price = price[i] * (1.0f - discount[i]);
+            float charge = disc_price * (1.0f + tax[i]);
+
+            groups[k].sum_qty += quantity[i];
+            groups[k].sum_base_price += price[i];
+            groups[k].sum_disc_price += disc_price;
+            groups[k].sum_charge += charge;
+            groups[k].sum_discount += discount[i];
+            groups[k].count_order++;
         }
     }
-    return sum;
 }
 
 
-// OpenCL kernel from Q6-----------------------
+// OpenCL kernel from v1-----------------------
 static const char* kernel_src = R"CLC(
-__kernel void q6_kernel_reduce(
+__kernel void q1_aggregate(
+    __global const float* quantity,
     __global const float* price,
     __global const float* discount,
-    __global const int* ship_day,
-    __global ulong* out_partials,
-    const int lo_day,
-    const int hi_day,
+    __global const float* tax,
+    __global const uchar* returnflag,
+    __global const uchar* linestatus,
+    __global const int* shipdate,
+    __global ulong* out_qty,
+    __global ulong* out_base,
+    __global ulong* out_disc,
+    __global ulong* out_charge,
+    __global ulong* out_discount,
+    __global uint* out_count,
+    __global uint* out_matched,
+    const int cutoff_ymd,
     const uint N
 ){
     uint gid = get_global_id(0);
-    uint lid = get_local_id(0);
-    uint group = get_group_id(0);
-    uint lsize = get_local_size(0);
+    if (gid >= N) return;
 
-    __local ulong lsum[256]; // requires local size <= 256
-    ulong x = 0;
+    if (shipdate[gid] <= cutoff_ymd) {
+        float q = quantity[gid];
+        float p = price[gid];
+        float d = discount[gid];
+        float t = tax[gid];
+        uchar rf = returnflag[gid];
+        uchar ls = linestatus[gid];
 
-   if (gid < N) {
-        int sd = ship_day[gid];
-        float disc = discount[gid];
-        if (sd >= lo_day && sd < hi_day &&
-            disc >= 0.05f && disc <= 0.07f) {
-            float y = price[gid] * disc;
-            // Convert to fixed-point cents for accuracy
-            ulong cents = (ulong)(y * 100.0f);
-            x = cents;
-        }
-    }
-
-    lsum[lid] = x;
-    barrier(CLK_LOCAL_MEM_FENCE);
-
-    // Reduction in local memory
-
-    for (uint stride = lsize / 2; stride > 0; stride >>= 1) {
-        if (lid < stride) {
-            lsum[lid] += lsum[lid + stride];
-        }
-        barrier(CLK_LOCAL_MEM_FENCE);
-    }
-
-    if (lid == 0) {
-        out_partials[group] = lsum[0];
-    }
-}
+        float disc_price = p * (1.0f - d);
+        float charge = disc_price * (1.0f + t);
 )CLC";
 
 
