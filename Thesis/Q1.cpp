@@ -194,15 +194,9 @@ __kernel void q1_aggregate(
     if (gid >= N) return;
 
     if (shipdate[gid] <= cutoff_ymd) {
-        float q = quantity[gid];
-        float p = price[gid];
-        float d = discount[gid];
-        float t = tax[gid];
-        uchar rf = returnflag[gid];
-        uchar ls = linestatus[gid];
-
-        float disc_price = p * (1.0f - d);
-        float charge = disc_price * (1.0f + t);
+       atomic_add(out_matched, 1u);
+    }
+} 
 )CLC";
 
 
@@ -220,7 +214,11 @@ int main(int argc, char** argv)
     int minYMD, maxYMD;
     load_lineitem(argv[1], quantity, price, discount, tax, returnflag, linestatus, shipdate, minYMD, maxYMD);
 
+    const uint32_t N = (uint32_t)shipdate.size()
     std::cout << "Loaded " << shipdate.size() << " rows\n";
+    std::cout << "Date range: " << yyyymmdd_to_string(minYMD)
+        << " to " << yyyymmdd_to_string(maxYMD) << "\n\n";
+
 	//------------- New OpenCL part---------------------
     cl_platform_id platform;
     CHECK_CL(clGetPlatformIDs(1, &platform, nullptr));
@@ -237,6 +235,16 @@ int main(int argc, char** argv)
     cl_program prog = clCreateProgramWithSource(ctx, 1, &src_ptr, &src_len, nullptr);
     clBuildProgram(prog, 1, &device, nullptr, nullptr, nullptr);
     cl_kernel k = clCreateKernel(prog, "q1_aggregate", nullptr);
+
+	//----- ----- Create buffers ----------
+    cl_int err;
+    cl_mem d_shipdate = clCreateBuffer(ctx, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
+        sizeof(int) * N, shipdate.data(), &err);
+    CHECK_CL(err);
+
+    cl_mem d_matched = clCreateBuffer(ctx, CL_MEM_READ_WRITE,
+        sizeof(uint32_t), nullptr, &err);
+    CHECK_CL(err);
     // ---------- Cleanup ----------
     clReleaseMemObject(d_price);
     clReleaseMemObject(d_discount);
