@@ -68,6 +68,8 @@ struct Aggregates {
     uint64_t count_order = 0;
 };
 
+
+
 // data loading ------------------------
 static void load_lineitem(
     const std::string& path,
@@ -211,8 +213,6 @@ int main(int argc, char** argv)
         return 1;
     }
 
-    const std::string path = argv[1];
-
     // ---------- Load data ----------
     std::vector<float> quantity, price, discount, tax;
     std::vector<uint8_t> returnflag, linestatus;
@@ -221,10 +221,22 @@ int main(int argc, char** argv)
     load_lineitem(argv[1], quantity, price, discount, tax, returnflag, linestatus, shipdate, minYMD, maxYMD);
 
     std::cout << "Loaded " << shipdate.size() << " rows\n";
-    std::cout << "Date range: " << yyyymmdd_to_string(minYMD)
-        << " to " << yyyymmdd_to_string(maxYMD) << "\n";
-    return 0;
-}
+	//------------- New OpenCL part---------------------
+    cl_platform_id platform;
+    CHECK_CL(clGetPlatformIDs(1, &platform, nullptr));
+
+    cl_device_id device;
+    CHECK_CL(clGetDeviceIDs(platform, CL_DEVICE_TYPE_GPU, 1, &device, nullptr));
+
+    cl_context ctx = clCreateContext(nullptr, 1, &device, nullptr, nullptr, nullptr);
+    cl_command_queue q = clCreateCommandQueue(ctx, device, 0, nullptr);
+
+    // Build kernel
+    const char* src_ptr = kernel_src;
+    size_t src_len = strlen(kernel_src);
+    cl_program prog = clCreateProgramWithSource(ctx, 1, &src_ptr, &src_len, nullptr);
+    clBuildProgram(prog, 1, &device, nullptr, nullptr, nullptr);
+    cl_kernel k = clCreateKernel(prog, "q1_aggregate", nullptr);
     // ---------- Cleanup ----------
     clReleaseMemObject(d_price);
     clReleaseMemObject(d_discount);
