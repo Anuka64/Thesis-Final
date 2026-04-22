@@ -170,8 +170,14 @@ static double cpu_q1(
 }
 
 
-// OpenCL kernel from v1-----------------------
+// MEMORY REDUCTION KERNEL-----------------------
 static const char* kernel_src = R"CLC(
+inline uint group_index(uchar rf, uchar ls) {
+    uint rf_idx = (rf == 'A') ? 0 : (rf == 'N') ? 1 : (rf == 'O') ? 2 : 3;
+    uint ls_idx = (ls == 'F') ? 0 : 1;
+    return rf_idx * 4 + ls_idx;
+}
+
 __kernel void q1_aggregate(
     __global const float* quantity,
     __global const float* price,
@@ -191,12 +197,95 @@ __kernel void q1_aggregate(
     const uint N
 ){
     uint gid = get_global_id(0);
-    if (gid >= N) return;
+    uint lid = get_local_id(0);
+    uint group = get_group_id(0);
+    uint lsize = get_local_size(0);
 
-    if (shipdate[gid] <= cutoff_ymd) {
-       atomic_add(out_matched, 1u);
+    const uint MAX_GROUPS = 16;
+    
+    __local ulong lsum_qty[16][64];
+    __local ulong lsum_base[16][64];
+    __local ulong lsum_disc[16][64];
+    __local ulong lsum_charge[16][64];
+    __local ulong lsum_discount[16][64];
+    __local uint lsum_count[16][64];
+    __local uint lsum_matched[64];
+
+    // Initialize local memory
+    for (uint g = 0; g < MAX_GROUPS; g++) {
+        lsum_qty[g][lid] = 0;
+        lsum_base[g][lid] = 0;
+        lsum_disc[g][lid] = 0;
+        lsum_charge[g][lid] = 0;
+        lsum_discount[g][lid] = 0;
+        lsum_count[g][lid] = 0;
     }
-} 
+    lsum_matched[lid] = 0;
+
+    // Process data
+    if (gid < N) {
+        int sd = shipdate[gid];
+        if (sd <= cutoff_ymd) {
+            lsum_matched[lid] = 1;
+            
+            float q = quantity[gid];
+            float p = price[gid];
+            float d = discount[gid];
+            float t = tax[gid];
+            uchar rf = returnflag[gid];
+            uchar ls = linestatus[gid];
+            
+            float disc_price = p * (1.0f - d);
+            float charge = disc_price * (1.0f + t);
+            
+            ulong qty_cents = (ulong)(q * 100.0f);
+            ulong base_cents = (ulong)(p * 100.0f);
+            ulong disc_cents = (ulong)(disc_price * 100.0f);
+            ulong charge_cents = (ulong)(charge * 100.0f);
+            ulong discount_cents = (ulong)(d * 100.0f);
+            
+            uint gidx = group_index(rf, ls);
+            
+            lsum_qty[gidx][lid] = qty_cents;
+            lsum_base[gidx][lid] = base_cents;
+            lsum_disc[gidx][lid] = disc_cents;
+            lsum_charge[gidx][lid] = charge_cents;
+            lsum_discount[gidx][lid] = discount_cents;
+            lsum_count[gidx][lid] = 1;
+        }
+    }
+    
+    barrier(CLK_LOCAL_MEM_FENCE);
+
+    // Tree reduction
+    for (uint stride = lsize / 2; stride > 0; stride >>= 1) {
+        if (lid < stride) {
+            for (uint g = 0; g < MAX_GROUPS; g++) {
+                lsum_qty[g][lid] += lsum_qty[g][lid + stride];
+                lsum_base[g][lid] += lsum_base[g][lid + stride];
+                lsum_disc[g][lid] += lsum_disc[g][lid + stride];
+                lsum_charge[g][lid] += lsum_charge[g][lid + stride];
+                lsum_discount[g][lid] += lsum_discount[g][lid + stride];
+                lsum_count[g][lid] += lsum_count[g][lid + stride];
+            }
+            lsum_matched[lid] += lsum_matched[lid + stride];
+        }
+        barrier(CLK_LOCAL_MEM_FENCE);
+    }
+
+    // Write partials
+    if (lid == 0) {
+        for (uint g = 0; g < MAX_GROUPS; g++) {
+            out_partials_qty[group * MAX_GROUPS + g] = lsum_qty[g][0];
+            out_partials_base[group * MAX_GROUPS + g] = lsum_base[g][0];
+            out_partials_disc[group * MAX_GROUPS + g] = lsum_disc[g][0];
+            out_partials_charge[group * MAX_GROUPS + g] = lsum_charge[g][0];
+            out_partials_discount[group * MAX_GROUPS + g] = lsum_discount[g][0];
+            out_partials_count[group * MAX_GROUPS + g] = lsum_count[g][0];
+        }
+        out_partials_matched[group] = lsum_matched[0];
+    }
+}
 )CLC";
 
 
@@ -226,8 +315,35 @@ int main(int argc, char** argv)
     cl_device_id device;
     CHECK_CL(clGetDeviceIDs(platform, CL_DEVICE_TYPE_GPU, 1, &device, nullptr));
 
-    cl_context ctx = clCreateContext(nullptr, 1, &device, nullptr, nullptr, nullptr);
-    cl_command_queue q = clCreateCommandQueue(ctx, device, 0, nullptr);
+    char dev_name[256];
+    CHECK_CL(clGetDeviceInfo(device, CL_DEVICE_NAME, sizeof(dev_name), dev_name, nullptr));
+    std::cout << "Using device: " << dev_name << "\n";
+
+    cl_int err;
+    cl_context ctx = clCreateContext(nullptr, 1, &device, nullptr, nullptr, nullptr &err);
+	CHECK_CL(err);
+
+    cl_command_queue q = clCreateCommandQueue(ctx, device, CL_QUEUE_PROFILING_ENABLE, &err);
+    CHECK_CL(err);
+
+    const char* src_ptr = kernel_src;
+    size_t src_len = std::strlen(kernel_src);
+    cl_program prog = clCreateProgramWithSource(ctx, 1, &src_ptr, &src_len, &err);
+    CHECK_CL(err);
+
+    err = clBuildProgram(prog, 1, &device, nullptr, nullptr, nullptr);
+    if (err != CL_SUCCESS) {
+        size_t log_size;
+        clGetProgramBuildInfo(prog, device, CL_PROGRAM_BUILD_LOG, 0, nullptr, &log_size);
+        std::vector<char> log(log_size);
+        clGetProgramBuildInfo(prog, device, CL_PROGRAM_BUILD_LOG, log_size, log.data(), nullptr);
+        std::cerr << "Build log:\n" << log.data() << "\n";
+        CHECK_CL(err);
+    }
+
+    cl_kernel k = clCreateKernel(prog, "q1_aggregate", &err);
+    CHECK_CL(err);
+
 
     // Build kernel
     const char* src_ptr = kernel_src;
@@ -245,6 +361,17 @@ int main(int argc, char** argv)
     cl_mem d_matched = clCreateBuffer(ctx, CL_MEM_READ_WRITE,
         sizeof(uint32_t), nullptr, &err);
     CHECK_CL(err);
+
+    // Partial results buffers
+    const size_t local = 64;
+    const size_t global = ((N + local - 1) / local) * local;
+    const size_t num_groups = global / local;
+    const uint32_t MAX_GROUPS = 16;
+
+    cl_mem d_partials_qty = clCreateBuffer(ctx, CL_MEM_WRITE_ONLY,
+        sizeof(uint64_t) * num_groups * MAX_GROUPS, nullptr, &err);
+    CHECK_CL(err);
+
     // ---------- Cleanup ----------
     clReleaseMemObject(d_price);
     clReleaseMemObject(d_discount);
