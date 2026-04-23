@@ -367,10 +367,77 @@ int main(int argc, char** argv)
     const size_t global = ((N + local - 1) / local) * local;
     const size_t num_groups = global / local;
     const uint32_t MAX_GROUPS = 16;
+    
+    std::cout << "Workgroups: " << num_groups << " (local size: " << local << ")\n";
 
     cl_mem d_partials_qty = clCreateBuffer(ctx, CL_MEM_WRITE_ONLY,
         sizeof(uint64_t) * num_groups * MAX_GROUPS, nullptr, &err);
     CHECK_CL(err);
+
+    cl_mem d_partials_base = clCreateBuffer(ctx, CL_MEM_WRITE_ONLY,
+        sizeof(uint64_t) * num_groups * MAX_GROUPS, nullptr, &err);
+    CHECK_CL(err);
+
+    cl_mem d_partials_disc = clCreateBuffer(ctx, CL_MEM_WRITE_ONLY,
+        sizeof(uint64_t) * num_groups * MAX_GROUPS, nullptr, &err);
+    CHECK_CL(err);
+
+    cl_mem d_partials_charge = clCreateBuffer(ctx, CL_MEM_WRITE_ONLY,
+        sizeof(uint64_t) * num_groups * MAX_GROUPS, nullptr, &err);
+    CHECK_CL(err);
+
+    cl_mem d_partials_discount = clCreateBuffer(ctx, CL_MEM_WRITE_ONLY,
+        sizeof(uint64_t) * num_groups * MAX_GROUPS, nullptr, &err);
+    CHECK_CL(err);
+
+    cl_mem d_partials_count = clCreateBuffer(ctx, CL_MEM_WRITE_ONLY,
+        sizeof(uint32_t) * num_groups * MAX_GROUPS, nullptr, &err);
+    CHECK_CL(err);
+
+    cl_mem d_partials_matched = clCreateBuffer(ctx, CL_MEM_WRITE_ONLY,
+        sizeof(uint32_t) * num_groups, nullptr, &err);
+    CHECK_CL(err);
+
+    // kernel argument
+    int cutoff_ymd = 19980801;  // temp-------------
+
+    CHECK_CL(clSetKernelArg(k, 0, sizeof(cl_mem), &d_quantity));
+    CHECK_CL(clSetKernelArg(k, 1, sizeof(cl_mem), &d_price));
+    CHECK_CL(clSetKernelArg(k, 2, sizeof(cl_mem), &d_discount));
+    CHECK_CL(clSetKernelArg(k, 3, sizeof(cl_mem), &d_tax));
+    CHECK_CL(clSetKernelArg(k, 4, sizeof(cl_mem), &d_returnflag));
+    CHECK_CL(clSetKernelArg(k, 5, sizeof(cl_mem), &d_linestatus));
+    CHECK_CL(clSetKernelArg(k, 6, sizeof(cl_mem), &d_shipdate));
+    CHECK_CL(clSetKernelArg(k, 7, sizeof(cl_mem), &d_partials_qty));
+    CHECK_CL(clSetKernelArg(k, 8, sizeof(cl_mem), &d_partials_base));
+    CHECK_CL(clSetKernelArg(k, 9, sizeof(cl_mem), &d_partials_disc));
+    CHECK_CL(clSetKernelArg(k, 10, sizeof(cl_mem), &d_partials_charge));
+    CHECK_CL(clSetKernelArg(k, 11, sizeof(cl_mem), &d_partials_discount));
+    CHECK_CL(clSetKernelArg(k, 12, sizeof(cl_mem), &d_partials_count));
+    CHECK_CL(clSetKernelArg(k, 13, sizeof(cl_mem), &d_partials_matched));
+    CHECK_CL(clSetKernelArg(k, 14, sizeof(int), &cutoff_ymd));
+    CHECK_CL(clSetKernelArg(k, 15, sizeof(cl_uint), &N));
+
+
+    cl_event evt;
+    CHECK_CL(clEnqueueNDRangeKernel(q, k, 1, nullptr, &global, &local, 0, nullptr, &evt));
+    CHECK_CL(clFinish(q));
+
+    // Read back partial results
+    std::vector<uint64_t> partials_qty(num_groups * MAX_GROUPS);
+    std::vector<uint64_t> partials_base(num_groups * MAX_GROUPS);
+    std::vector<uint32_t> partials_matched(num_groups);
+    CHECK_CL(clEnqueueReadBuffer(q, d_partials_matched, CL_TRUE, 0, sizeof(uint32_t) * num_groups, partials_matched.data(), 0, nullptr, nullptr));
+
+    // CPU Final Reduction
+    uint32_t total_matched = 0;
+    for (uint32_t i = 0; i < num_groups; i++) {
+        total_matched += partials_matched[i];
+    }
+
+    std::cout << "GPU matched rows: " << total_matched << "\n";
+
+
 
     // ---------- Cleanup ----------
     clReleaseMemObject(d_price);
