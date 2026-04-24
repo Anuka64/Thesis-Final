@@ -168,7 +168,10 @@ static double cpu_q1(
         }
     }
 }
-
+static double compute_data_efficiency(uint64_t passing_rows, uint64_t total_rows) {
+    if (total_rows == 0) return 0.0;
+    return double(passing_rows) / double(total_rows);
+}
 
 // MEMORY REDUCTION KERNEL-----------------------
 static const char* kernel_src = R"CLC(
@@ -295,12 +298,18 @@ int main(int argc, char** argv)
         std::cerr << "Usage: " << argv[0] << " lineitem.tbl\n";
         return 1;
     }
+    const std::string path = argv[1];
+    const int WARMUP = (argc > 2) ? std::atoi(argv[2]) : 10;
+    const int REPS = (argc > 3) ? std::atoi(argv[3]) : 30;
 
-    // ---------- Load data ----------
+    std::cout << "=== TPC-H Query 1 - Step 7 ===\n";
+    std::cout << "Loading lineitem from: " << path << "\n";
+    
     std::vector<float> quantity, price, discount, tax;
     std::vector<uint8_t> returnflag, linestatus;
     std::vector<int> shipdate;
     int minYMD, maxYMD;
+    
     load_lineitem(argv[1], quantity, price, discount, tax, returnflag, linestatus, shipdate, minYMD, maxYMD);
 
     const uint32_t N = (uint32_t)shipdate.size()
@@ -308,7 +317,7 @@ int main(int argc, char** argv)
     std::cout << "Date range: " << yyyymmdd_to_string(minYMD)
         << " to " << yyyymmdd_to_string(maxYMD) << "\n\n";
 
-	//------------- New OpenCL part---------------------
+	//------------- OpenCL Setup---------------------
     cl_platform_id platform;
     CHECK_CL(clGetPlatformIDs(1, &platform, nullptr));
 
@@ -345,13 +354,6 @@ int main(int argc, char** argv)
     CHECK_CL(err);
 
 
-    // Build kernel
-    const char* src_ptr = kernel_src;
-    size_t src_len = strlen(kernel_src);
-    cl_program prog = clCreateProgramWithSource(ctx, 1, &src_ptr, &src_len, nullptr);
-    clBuildProgram(prog, 1, &device, nullptr, nullptr, nullptr);
-    cl_kernel k = clCreateKernel(prog, "q1_aggregate", nullptr);
-
 	//----- ----- Create buffers ----------
     cl_int err;
     cl_mem d_shipdate = clCreateBuffer(ctx, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
@@ -362,8 +364,8 @@ int main(int argc, char** argv)
         sizeof(uint32_t), nullptr, &err);
     CHECK_CL(err);
 
-    // Partial results buffers
-    const size_t local = 64;
+	// Workgroup size
+	const size_t local = 64; //Reduced to 64 to better fit the GPU's shared memory and reduce idle threads
     const size_t global = ((N + local - 1) / local) * local;
     const size_t num_groups = global / local;
     const uint32_t MAX_GROUPS = 16;
@@ -397,6 +399,45 @@ int main(int argc, char** argv)
     cl_mem d_partials_matched = clCreateBuffer(ctx, CL_MEM_WRITE_ONLY,
         sizeof(uint32_t) * num_groups, nullptr, &err);
     CHECK_CL(err);
+
+    // Sort shipdate to generate cutoffs
+    std::vector<int> shipdate_sorted = shipdate;
+    std::sort(shipdate_sorted.begin(), shipdate_sorted.end());
+
+    // Selectivity targets
+    const std::vector<double> targets = { 0.0001, 0.001, 0.01, 0.1, 0.25, 0.5, 0.75, 1.0 };
+
+    std::vector<int> cutoffs;
+    for (double s : targets) {
+        int idx = int(s * double(N));
+        if (idx >= (int)N) idx = (int)N - 1;
+        cutoffs.push_back(shipdate_sorted[idx]);
+    }
+
+    // CSV output --------------------
+    std::ofstream csv("q1_results.csv");
+    csv << "target_selectivity,cutoff_date,achieved_selectivity,"
+        << "kernel_ms_min,kernel_ms_median,kernel_ms_max,"
+        << "total_execution_time_median,overhead_ms,overhead_percentage,"
+        << "gpu_to_cpu_transfer_in_ms,cpu_reduction_time_in_ms,"
+        << "thread_utilization_percentage,wasted_threads_percentage,"
+        << "data_efficiency_percentage,useful_data_MB,total_data_MB,"
+        << "bandwidth_GB_per_sec,"
+        << "num_groups,validation_cpu_result,validation_gpu_result,abs_error\n";
+    csv << std::fixed << std::setprecision(9);
+
+    // timing struct -----------------
+    struct TimingResult {
+        double kernel_ms;
+        double wall_ms;
+        double d2h_ms;
+        double cpu_finalize_ms;
+        std::vector<uint64_t> sum_qty, sum_base, sum_disc, sum_charge, sum_discount;
+        std::vector<uint32_t> count;
+        uint32_t matched;
+        double total_charge;
+        uint32_t num_groups;
+    };
 
     // kernel argument
     int cutoff_ymd = 19980801;  // temp-------------
@@ -437,8 +478,28 @@ int main(int argc, char** argv)
 
     std::cout << "GPU matched rows: " << total_matched << "\n";
 
+    // CPU Reference
+    std::map<GroupKey, Aggregates> cpu_groups;
+    uint64_t cpu_matched = 0;
+    cpu_q1(quantity, price, discount, tax, returnflag, linestatus, shipdate,
+        cutoff, cpu_groups, cpu_matched);
+
+    double achieved = double(cpu_matched) / N;
+
+    std::cout << "Target " << targets[i] << " -> Achieved " << achieved << "\n";
+
+    
+    // ========TODO: Launch kernel with timing ==================================
 
 
+
+
+
+    csv << targets[i] << "," << cutoff << "," << achieved << ",0.0," << cpu_matched << "\n";
+    }
+
+    csv.close();
+    std::cout << "\nWrote q1_results.csv\n";
     // ---------- Cleanup ----------
     clReleaseMemObject(d_price);
     clReleaseMemObject(d_discount);
