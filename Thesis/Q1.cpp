@@ -356,13 +356,35 @@ int main(int argc, char** argv)
 
 	//----- ----- Create buffers ----------
     
+    cl_mem d_quantity = clCreateBuffer(ctx, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
+        sizeof(float) * N, quantity.data(), &err);
+    CHECK_CL(err);
+
+    cl_mem d_price = clCreateBuffer(ctx, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
+        sizeof(float) * N, price.data(), &err);
+    CHECK_CL(err);
+
+    cl_mem d_discount = clCreateBuffer(ctx, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
+        sizeof(float) * N, discount.data(), &err);
+    CHECK_CL(err);
+
+    cl_mem d_tax = clCreateBuffer(ctx, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
+        sizeof(float) * N, tax.data(), &err);
+    CHECK_CL(err);
+
+    cl_mem d_returnflag = clCreateBuffer(ctx, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
+        sizeof(uint8_t) * N, returnflag.data(), &err);
+    CHECK_CL(err);
+
+    cl_mem d_linestatus = clCreateBuffer(ctx, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
+        sizeof(uint8_t) * N, linestatus.data(), &err);
+    CHECK_CL(err);
+
     cl_mem d_shipdate = clCreateBuffer(ctx, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
         sizeof(int) * N, shipdate.data(), &err);
     CHECK_CL(err);
 
-    cl_mem d_matched = clCreateBuffer(ctx, CL_MEM_READ_WRITE,
-        sizeof(uint32_t), nullptr, &err);
-    CHECK_CL(err);
+
 
 	// Workgroup size
 	const size_t local = 64; //Reduced to 64 to better fit the GPU's shared memory and reduce idle threads
