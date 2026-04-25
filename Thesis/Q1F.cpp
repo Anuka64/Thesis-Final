@@ -1,4 +1,5 @@
-﻿// TPC-H Q1
+﻿
+// TPC-H Q1
 
 #define CL_TARGET_OPENCL_VERSION 120
 #define NOMINMAX
@@ -104,7 +105,7 @@ static void load_lineitem(
             if (pos == std::string::npos) break;
             std::string f = line.substr(start, pos - start);
 
-            if (field == 4) q = std::stof(f);
+            if (field == 4) p = std::stof(f);
             else if (field == 5) p = std::stof(f);
             else if (field == 6) d = std::stof(f);
             else if (field == 7) t = std::stof(f);
@@ -134,7 +135,7 @@ static void load_lineitem(
 
 // ---------------- CPU reference Q1
 
-static void cpu_q1(
+static double cpu_q1(
     const std::vector<float>& quantity,
     const std::vector<float>& price,
     const std::vector<float>& discount,
@@ -188,13 +189,13 @@ __kernel void q1_aggregate(
     __global const uchar* returnflag,
     __global const uchar* linestatus,
     __global const int* shipdate,
-    __global ulong* out_partials_qty,
-    __global ulong* out__partials_base,
-    __global ulong* out__partials_disc,
-    __global ulong* out__partials_charge,
-    __global ulong* out__partials_discount,
-    __global uint* out__partials_count,
-    __global uint* out__partials_matched,
+    __global ulong* out_qty,
+    __global ulong* out_base,
+    __global ulong* out_disc,
+    __global ulong* out_charge,
+    __global ulong* out_discount,
+    __global uint* out_count,
+    __global uint* out_matched,
     const int cutoff_ymd,
     const uint N
 ){
@@ -293,7 +294,6 @@ __kernel void q1_aggregate(
 
 // --------------------------Main----------------------------
 int main(int argc, char** argv) 
-{
     if (argc < 2) {
         std::cerr << "Usage: " << argv[0] << " lineitem.tbl\n";
         return 1;
@@ -312,7 +312,7 @@ int main(int argc, char** argv)
     
     load_lineitem(argv[1], quantity, price, discount, tax, returnflag, linestatus, shipdate, minYMD, maxYMD);
 
-    const uint32_t N = (uint32_t)shipdate.size();
+    const uint32_t N = (uint32_t)shipdate.size()
     std::cout << "Loaded " << shipdate.size() << " rows\n";
     std::cout << "Date range: " << yyyymmdd_to_string(minYMD)
         << " to " << yyyymmdd_to_string(maxYMD) << "\n\n";
@@ -328,9 +328,9 @@ int main(int argc, char** argv)
     CHECK_CL(clGetDeviceInfo(device, CL_DEVICE_NAME, sizeof(dev_name), dev_name, nullptr));
     std::cout << "Using device: " << dev_name << "\n";
 
-    cl_int err = CL_SUCCESS;
-    cl_context ctx = clCreateContext(nullptr, 1, &device, nullptr, nullptr, &err);
-    if (!ctx) { /* handle error, e.g. print err */ }
+    cl_int err;
+    cl_context ctx = clCreateContext(nullptr, 1, &device, nullptr, nullptr, nullptr &err);
+	CHECK_CL(err);
 
     cl_command_queue q = clCreateCommandQueue(ctx, device, CL_QUEUE_PROFILING_ENABLE, &err);
     CHECK_CL(err);
@@ -355,7 +355,7 @@ int main(int argc, char** argv)
 
 
 	//----- ----- Create buffers ----------
-    
+    cl_int err;
     cl_mem d_shipdate = clCreateBuffer(ctx, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
         sizeof(int) * N, shipdate.data(), &err);
     CHECK_CL(err);
