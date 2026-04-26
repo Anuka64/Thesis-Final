@@ -494,44 +494,85 @@ int main(int argc, char** argv)
         timing.kernel_ms = double(t1 - t0) * 1e-6;
         clReleaseEvent(evt);
 
-    // kernel argument
-    int cutoff_ymd = 19980801;  // temp-------------
+        // GPU to CPU transfer
+        auto d2h_t0 = std::chrono::high_resolution_clock::now();
 
-    CHECK_CL(clSetKernelArg(k, 0, sizeof(cl_mem), &d_quantity));
-    CHECK_CL(clSetKernelArg(k, 1, sizeof(cl_mem), &d_price));
-    CHECK_CL(clSetKernelArg(k, 2, sizeof(cl_mem), &d_discount));
-    CHECK_CL(clSetKernelArg(k, 3, sizeof(cl_mem), &d_tax));
-    CHECK_CL(clSetKernelArg(k, 4, sizeof(cl_mem), &d_returnflag));
-    CHECK_CL(clSetKernelArg(k, 5, sizeof(cl_mem), &d_linestatus));
-    CHECK_CL(clSetKernelArg(k, 6, sizeof(cl_mem), &d_shipdate));
-    CHECK_CL(clSetKernelArg(k, 7, sizeof(cl_mem), &d_partials_qty));
-    CHECK_CL(clSetKernelArg(k, 8, sizeof(cl_mem), &d_partials_base));
-    CHECK_CL(clSetKernelArg(k, 9, sizeof(cl_mem), &d_partials_disc));
-    CHECK_CL(clSetKernelArg(k, 10, sizeof(cl_mem), &d_partials_charge));
-    CHECK_CL(clSetKernelArg(k, 11, sizeof(cl_mem), &d_partials_discount));
-    CHECK_CL(clSetKernelArg(k, 12, sizeof(cl_mem), &d_partials_count));
-    CHECK_CL(clSetKernelArg(k, 13, sizeof(cl_mem), &d_partials_matched));
-    CHECK_CL(clSetKernelArg(k, 14, sizeof(int), &cutoff_ymd));
-    CHECK_CL(clSetKernelArg(k, 15, sizeof(cl_uint), &N));
+        std::vector<uint64_t> partials_qty(num_groups* MAX_GROUPS);
+        std::vector<uint64_t> partials_base(num_groups* MAX_GROUPS);
+        std::vector<uint64_t> partials_disc(num_groups* MAX_GROUPS);
+        std::vector<uint64_t> partials_charge(num_groups* MAX_GROUPS);
+        std::vector<uint64_t> partials_discount(num_groups* MAX_GROUPS);
+        std::vector<uint32_t> partials_count(num_groups* MAX_GROUPS);
+        std::vector<uint32_t> partials_matched(num_groups);
+
+        CHECK_CL(clEnqueueReadBuffer(q, d_partials_qty, CL_TRUE, 0, sizeof(uint64_t)* num_groups* MAX_GROUPS,
+            partials_qty.data(), 0, nullptr, nullptr));
+        CHECK_CL(clEnqueueReadBuffer(q, d_partials_base, CL_TRUE, 0, sizeof(uint64_t)* num_groups* MAX_GROUPS,
+            partials_base.data(), 0, nullptr, nullptr));
+        CHECK_CL(clEnqueueReadBuffer(q, d_partials_disc, CL_TRUE, 0, sizeof(uint64_t)* num_groups* MAX_GROUPS,
+            partials_disc.data(), 0, nullptr, nullptr));
+        CHECK_CL(clEnqueueReadBuffer(q, d_partials_charge, CL_TRUE, 0, sizeof(uint64_t)* num_groups* MAX_GROUPS,
+            partials_charge.data(), 0, nullptr, nullptr));
+        CHECK_CL(clEnqueueReadBuffer(q, d_partials_discount, CL_TRUE, 0, sizeof(uint64_t)* num_groups* MAX_GROUPS,
+            partials_discount.data(), 0, nullptr, nullptr));
+        CHECK_CL(clEnqueueReadBuffer(q, d_partials_count, CL_TRUE, 0, sizeof(uint32_t)* num_groups* MAX_GROUPS,
+            partials_count.data(), 0, nullptr, nullptr));
+        CHECK_CL(clEnqueueReadBuffer(q, d_partials_matched, CL_TRUE, 0, sizeof(uint32_t)* num_groups,
+            partials_matched.data(), 0, nullptr, nullptr));
+
+        auto d2h_t1 = std::chrono::high_resolution_clock::now();
+        timing.d2h_ms = std::chrono::duration<double, std::milli>(d2h_t1 - d2h_t0).count();
+
+        // combine results from all workgroups into final group sum
+        auto cpu_t0 = std::chrono::high_resolution_clock::now();
+
+        timing.sum_qty.resize(MAX_GROUPS, 0);
+        timing.sum_base.resize(MAX_GROUPS, 0);
+        timing.sum_disc.resize(MAX_GROUPS, 0);
+        timing.sum_charge.resize(MAX_GROUPS, 0);
+        timing.sum_discount.resize(MAX_GROUPS, 0);
+        timing.count.resize(MAX_GROUPS, 0);
+        timing.matched = 0;
+
+        for (size_t wg = 0; wg < num_groups; wg++) {
+            timing.matched += partials_matched[wg];
+            for (uint32_t g = 0; g < MAX_GROUPS; g++) {
+                size_t idx = wg * MAX_GROUPS + g;
+                timing.sum_qty[g] += partials_qty[idx];
+                timing.sum_base[g] += partials_base[idx];
+                timing.sum_disc[g] += partials_disc[idx];
+                timing.sum_charge[g] += partials_charge[idx];
+                timing.sum_discount[g] += partials_discount[idx];
+                timing.count[g] += partials_count[idx];
+            }
+        }
+
+        timing.total_charge = 0.0;
+        timing.num_groups = 0;
+        for (uint32_t g = 0; g < MAX_GROUPS; g++) {
+            if (timing.count[g] > 0) {
+                timing.num_groups++;
+                timing.total_charge += double(timing.sum_charge[g]) / 100.0;
+            }
+        }
+
+        auto cpu_t1 = std::chrono::high_resolution_clock::now();
+        timing.cpu_finalize_ms = std::chrono::duration<double, std::milli>(cpu_t1 - cpu_t0).count();
+
+        auto wall_t1 = std::chrono::high_resolution_clock::now();
+        timing.wall_ms = std::chrono::duration<double, std::milli>(wall_t1 - wall_t0).count();
+        return timing;
+        };
 
 
-    cl_event evt;
-    CHECK_CL(clEnqueueNDRangeKernel(q, k, 1, nullptr, &global, &local, 0, nullptr, &evt));
-    CHECK_CL(clFinish(q));
+    // Selectivity sweep
+    std::cout << "Starting Q1 selectivity sweep...\n";
+    std::cout << "target_s | cutoff     | achieved_s | kernel_ms  | wall_ms   | overhead% | groups | abs_err\n";
+    std::cout << "--------------------------------------------------------------------------------------------\n";
 
-    // Read back partial results
-    std::vector<uint64_t> partials_qty(num_groups * MAX_GROUPS);
-    std::vector<uint64_t> partials_base(num_groups * MAX_GROUPS);
-    std::vector<uint32_t> partials_matched(num_groups);
-    CHECK_CL(clEnqueueReadBuffer(q, d_partials_matched, CL_TRUE, 0, sizeof(uint32_t) * num_groups, partials_matched.data(), 0, nullptr, nullptr));
-
-    // CPU Final Reduction
-    uint32_t total_matched = 0;
-    for (uint32_t i = 0; i < num_groups; i++) {
-        total_matched += partials_matched[i];
-    }
-
-    std::cout << "GPU matched rows: " << total_matched << "\n";
+    for (size_t t_idx = 0; t_idx < targets.size(); t_idx++) {
+        double target_s = targets[t_idx];
+        int cutoff_ymd = cutoffs[t_idx];
 
     // CPU Reference
     std::map<GroupKey, Aggregates> cpu_groups;
@@ -539,9 +580,41 @@ int main(int argc, char** argv)
     cpu_q1(quantity, price, discount, tax, returnflag, linestatus, shipdate,
         cutoff, cpu_groups, cpu_matched);
 
-    double achieved = double(cpu_matched) / N;
+    const double achieved_s = double(cpu_matched) / double(N);
+    for (int i = 0; i < WARMUP; i++) { TimingResult dummy = launch_once(cutoff_ymd); (void)dummy; }
 
-    std::cout << "Target " << targets[i] << " -> Achieved " << achieved << "\n";
+    std::vector<TimingResult> timings;
+    timings.reserve(REPS);
+    for (int r = 0; r < REPS; r++) { timings.push_back(launch_once(cutoff_ymd)); sleep_ms(200); }
+
+    std::sort(timings.begin(), timings.end(), [](const TimingResult& a, const TimingResult& b) {
+        return a.kernel_ms < b.kernel_ms; });
+
+    const size_t remove_count = timings.size() * 35 / 100;
+    std::vector<TimingResult> filtered_kernel;
+    for (size_t i = remove_count; i < timings.size() - remove_count; i++)
+        filtered_kernel.push_back(timings[i]);
+
+    const double ms_min = filtered_kernel.front().kernel_ms;
+    const double ms_max = filtered_kernel.back().kernel_ms;
+    const double ms_med = filtered_kernel[filtered_kernel.size() / 2].kernel_ms;
+
+    std::vector<TimingResult> timings_by_wall = timings;
+    std::sort(timings_by_wall.begin(), timings_by_wall.end(), [](const TimingResult& a, const TimingResult& b) {
+        return a.wall_ms < b.wall_ms; });
+    std::vector<TimingResult> filtered_wall;
+    for (size_t i = remove_count; i < timings_by_wall.size() - remove_count; i++)
+        filtered_wall.push_back(timings_by_wall[i]);
+
+    const double wall_ms_med = filtered_wall[filtered_wall.size() / 2].wall_ms;
+    const double d2h_ms_med = filtered_wall[filtered_wall.size() / 2].d2h_ms;
+    const double cpu_finalize_ms_med = filtered_wall[filtered_wall.size() / 2].cpu_finalize_ms;
+    const double overhead_ms = wall_ms_med - ms_med;
+    const double overhead_pct = (overhead_ms / wall_ms_med) * 100.0;
+
+    const TimingResult& median_run = filtered_wall[filtered_wall.size() / 2];
+    const uint32_t num_groups_result = median_run.num_groups;
+    const double total_gpu_charge = median_run.total_charge;
     
     // Calculate CPU total
     const char returnflags[] = { 'A', 'N', 'O', 'R' };
@@ -560,18 +633,14 @@ int main(int argc, char** argv)
         }
     }
 
-    const double abs_err = std::abs(total_cpu_charge - total_gpu_charge);
-    
-    
     // Metrics
+    const double abs_err = std::abs(total_cpu_charge - total_gpu_charge);
     const double thread_util_pct = achieved_s * 100.0;
     const double wasted_threads_pct = (1.0 - achieved_s) * 100.0;
-
     const double row_size_bytes = sizeof(float) * 4 + sizeof(uint8_t) * 2 + sizeof(int);
     const double useful_data_MB = double(cpu_matched) * row_size_bytes / 1e6;
     const double total_data_MB = double(N) * row_size_bytes / 1e6;
     const double data_efficiency_pct = compute_data_efficiency(cpu_matched, N) * 100.0;
-
     const double bytes_read = double(N) * row_size_bytes;
     const double bytes_written = double(num_groups) * MAX_GROUPS * (sizeof(uint64_t) * 5 + sizeof(uint32_t)) +
         double(num_groups) * sizeof(uint32_t);
@@ -603,10 +672,20 @@ int main(int argc, char** argv)
     csv.close();
     std::cout << "\nWrote q1_results.csv\n";
     // ---------- Cleanup ----------
+    clReleaseMemObject(d_quantity); 
     clReleaseMemObject(d_price);
     clReleaseMemObject(d_discount);
-    clReleaseMemObject(d_shipday);
-    clReleaseMemObject(d_partials);
+    clReleaseMemObject(d_tax);
+    clReleaseMemObject(d_returnflag);
+    clReleaseMemObject(d_linestatus);
+    clReleaseMemObject(d_shipdate);
+    clReleaseMemObject(d_partials_qty);
+    clReleaseMemObject(d_partials_base);
+    clReleaseMemObject(d_partials_disc);
+    clReleaseMemObject(d_partials_charge);
+    clReleaseMemObject(d_partials_discount);
+    clReleaseMemObject(d_partials_count);
+    clReleaseMemObject(d_partials_matched);
     clReleaseKernel(k);
     clReleaseProgram(prog);
     clReleaseCommandQueue(q);
