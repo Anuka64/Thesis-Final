@@ -189,12 +189,12 @@ __kernel void q1_aggregate(
     __global const uchar* linestatus,
     __global const int* shipdate,
     __global ulong* out_partials_qty,
-    __global ulong* out__partials_base,
-    __global ulong* out__partials_disc,
-    __global ulong* out__partials_charge,
-    __global ulong* out__partials_discount,
-    __global uint* out__partials_count,
-    __global uint* out__partials_matched,
+    __global ulong* out_partials_base,
+    __global ulong* out_partials_disc,
+    __global ulong* out_partials_charge,
+    __global ulong* out_partials_discount,
+    __global uint* out_partials_count,
+    __global uint* out_partials_matched,
     const int cutoff_ymd,
     const uint N
 ){
@@ -302,7 +302,7 @@ int main(int argc, char** argv)
     const int WARMUP = (argc > 2) ? std::atoi(argv[2]) : 20;
     const int REPS = (argc > 3) ? std::atoi(argv[3]) : 50;
 
-    std::cout << "=== TPC-H Query 1 - Step 7 ===\n";
+    std::cout << "=== TPC-H Query 1\n";
     std::cout << "Loading lineitem from: " << path << "\n";
     
     std::vector<float> quantity, price, discount, tax;
@@ -328,9 +328,9 @@ int main(int argc, char** argv)
     CHECK_CL(clGetDeviceInfo(device, CL_DEVICE_NAME, sizeof(dev_name), dev_name, nullptr));
     std::cout << "Using device: " << dev_name << "\n";
 
-    cl_int err = CL_SUCCESS;
+    cl_int err;
     cl_context ctx = clCreateContext(nullptr, 1, &device, nullptr, nullptr, &err);
-    if (!ctx) { /* handle error, e.g. print err */ }
+    CHECK_CL(err);
 
     cl_command_queue q = clCreateCommandQueue(ctx, device, CL_QUEUE_PROFILING_ENABLE, &err);
     CHECK_CL(err);
@@ -578,7 +578,7 @@ int main(int argc, char** argv)
     std::map<GroupKey, Aggregates> cpu_groups;
     uint64_t cpu_matched = 0;
     cpu_q1(quantity, price, discount, tax, returnflag, linestatus, shipdate,
-        cutoff, cpu_groups, cpu_matched);
+        cutoff_ymd, cpu_groups, cpu_matched);
 
     const double achieved_s = double(cpu_matched) / double(N);
     for (int i = 0; i < WARMUP; i++) { TimingResult dummy = launch_once(cutoff_ymd); (void)dummy; }
@@ -642,8 +642,8 @@ int main(int argc, char** argv)
     const double total_data_MB = double(N) * row_size_bytes / 1e6;
     const double data_efficiency_pct = compute_data_efficiency(cpu_matched, N) * 100.0;
     const double bytes_read = double(N) * row_size_bytes;
-    const double bytes_written = double(num_groups) * MAX_GROUPS * (sizeof(uint64_t) * 5 + sizeof(uint32_t)) +
-        double(num_groups) * sizeof(uint32_t);
+    const double bytes_written = double(num_groups_result) * MAX_GROUPS * (sizeof(uint64_t) * 5 + sizeof(uint32_t)) +
+        double(num_groups_result) * sizeof(uint32_t);
     const double total_bytes = bytes_read + bytes_written;
     const double theoritical_gbps_med = total_bytes / (ms_med * 1e6);
 
@@ -655,7 +655,7 @@ int main(int argc, char** argv)
         << thread_util_pct << "," << wasted_threads_pct << ","
         << data_efficiency_pct << "," << useful_data_MB << "," << total_data_MB << ","
         << theoritical_gbps_med << ","
-        << num_groups << "," << total_cpu_charge << "," << total_gpu_charge << "," << abs_err << "\n";
+        << num_groups_result << "," << total_cpu_charge << "," << total_gpu_charge << "," << abs_err << "\n";
 
     // Console output
     std::cout << std::fixed << std::setprecision(3);
