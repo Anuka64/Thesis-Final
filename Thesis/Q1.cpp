@@ -642,8 +642,8 @@ int main(int argc, char** argv)
     const double total_data_MB = double(N) * row_size_bytes / 1e6;
     const double data_efficiency_pct = compute_data_efficiency(cpu_matched, N) * 100.0;
     const double bytes_read = double(N) * row_size_bytes;
-    const double bytes_written = double(num_groups_result) * MAX_GROUPS * (sizeof(uint64_t) * 5 + sizeof(uint32_t)) +
-        double(num_groups_result) * sizeof(uint32_t);
+    const double bytes_written = double(num_groups) * MAX_GROUPS * (sizeof(uint64_t) * 5 + sizeof(uint32_t)) +
+        double(num_groups) * sizeof(uint32_t);
     const double total_bytes = bytes_read + bytes_written;
     const double theoritical_gbps_med = total_bytes / (ms_med * 1e6);
 
