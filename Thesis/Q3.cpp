@@ -57,6 +57,132 @@ static double compute_data_efficiency(uint64_t passing_rows, uint64_t total_rows
     return double(passing_rows) / double(total_rows);
 }
 
+struct OrderInfo {
+    int orderdate;
+    int shippriority;
+};
+
+// Step 1: collect custkeys for the BUILDING market segment.
+static void load_customer(
+    const std::string& path,
+    std::unordered_set<int32_t>& building_custkeys
+) {
+    std::ifstream in(path);
+    if (!in) { std::cerr << "Cannot open: " << path << "\n"; std::exit(1); }
+
+    std::string line;
+    while (std::getline(in, line)) {
+        int field = 0;
+        size_t start = 0;
+        int32_t custkey = 0;
+        std::string mkt;
+
+        while (true) {
+            size_t pos = line.find('|', start);
+            if (pos == std::string::npos) break;
+            std::string f = line.substr(start, pos - start);
+            if (field == 0) custkey = std::stoi(f);
+            else if (field == 6) { mkt = f; break; }
+            field++;
+            start = pos + 1;
+        }
+        if (mkt == "BUILDING")
+            building_custkeys.insert(custkey);
+    }
+}
+
+// Step 2: load orders which belongs to BUILDING-segment of customers.
+static void load_orders_q3(
+    const std::string& path,
+    const std::unordered_set<int32_t>& building_custkeys,
+    std::unordered_map<int32_t, OrderInfo>& order_map
+) {
+    std::ifstream in(path);
+    if (!in) { std::cerr << "Cannot open: " << path << "\n"; std::exit(1); }
+
+    std::string line;
+    while (std::getline(in, line)) {
+        int field = 0;
+        size_t start = 0;
+        int32_t orderkey = 0, custkey = 0;
+        std::string orderdate_str;
+        int shippriority = 0;
+
+        while (true) {
+            size_t pos = line.find('|', start);
+            if (pos == std::string::npos) break;
+            std::string f = line.substr(start, pos - start);
+            if (field == 0)      orderkey = std::stoi(f);
+            else if (field == 1) custkey = std::stoi(f);
+            else if (field == 4) orderdate_str = f;
+            else if (field == 7) { shippriority = std::stoi(f); break; }
+            field++;
+            start = pos + 1;
+        }
+
+        if (orderdate_str.size() == 10 && building_custkeys.count(custkey))
+            order_map[orderkey] = { parse_yyyymmdd(orderdate_str), shippriority };
+    }
+}
+
+// Step 3: join lineitem against the order map and write in GPU.
+static void load_lineitem_q3(
+    const std::string& path,
+    const std::unordered_map<int32_t, OrderInfo>& order_map,
+    std::vector<float>& ext_price,
+    std::vector<float>& discount,
+    std::vector<int>& l_shipdate_arr,
+    std::vector<int>& o_orderdate_arr,
+    int& minShipYMD, int& maxShipYMD,
+    int& minOrderYMD, int& maxOrderYMD
+) {
+    std::ifstream in(path);
+    if (!in) { std::cerr << "Cannot open: " << path << "\n"; std::exit(1); }
+
+    minShipYMD = std::numeric_limits<int>::max();
+    maxShipYMD = std::numeric_limits<int>::min();
+    minOrderYMD = std::numeric_limits<int>::max();
+    maxOrderYMD = std::numeric_limits<int>::min();
+
+    std::string line;
+    while (std::getline(in, line)) {
+        int field = 0;
+        size_t start = 0;
+        int32_t ok = 0;
+        float ep = 0.0f, disc = 0.0f;
+        std::string shipdate_str;
+
+        while (true) {
+            size_t pos = line.find('|', start);
+            if (pos == std::string::npos) break;
+            std::string f = line.substr(start, pos - start);
+            if (field == 0)       ok = std::stoi(f);
+            else if (field == 5)  ep = std::stof(f);
+            else if (field == 6)  disc = std::stof(f);
+            else if (field == 10) { shipdate_str = f; break; }
+            field++;
+            start = pos + 1;
+        }
+
+        if (shipdate_str.size() != 10) continue;
+
+        auto it = order_map.find(ok);
+        if (it == order_map.end()) continue;
+
+        int sd = parse_yyyymmdd(shipdate_str);
+        const OrderInfo& oi = it->second;
+
+        minShipYMD = std::min(minShipYMD, sd);
+        maxShipYMD = std::max(maxShipYMD, sd);
+        minOrderYMD = std::min(minOrderYMD, oi.orderdate);
+        maxOrderYMD = std::max(maxOrderYMD, oi.orderdate);
+
+        ext_price.push_back(ep);
+        discount.push_back(disc);
+        l_shipdate_arr.push_back(sd);
+        o_orderdate_arr.push_back(oi.orderdate);
+    }
+}
 csv.close();
 std::cout << "\nWrote q3_results.csv\n";
 // ---------- Cleanup ----------
