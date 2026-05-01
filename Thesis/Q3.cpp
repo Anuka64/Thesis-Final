@@ -183,6 +183,55 @@ static void load_lineitem_q3(
         o_orderdate_arr.push_back(oi.orderdate);
     }
 }
+
+// CPU reference implementation for validation.
+
+static double cpu_q3(
+    const std::vector<float>& ext_price,
+    const std::vector<float>& discount,
+    const std::vector<int>& l_shipdate_arr,
+    const std::vector<int>& o_orderdate_arr,
+    const std::vector<int32_t>& orderkey_arr,
+    const std::vector<int32_t>& shippriority_arr,
+    int cutoff_ymd,
+    uint64_t& matched_count
+) {
+    std::map<Q3GroupKey, double> groups;
+    matched_count = 0;
+    const size_t Nlocal = l_shipdate_arr.size();
+
+    for (size_t i = 0; i < Nlocal; i++) {
+        if (o_orderdate_arr[i] < cutoff_ymd && l_shipdate_arr[i] > cutoff_ymd) {
+            matched_count++;
+            double revenue = double(ext_price[i]) * (1.0 - double(discount[i]));
+            Q3GroupKey k{ orderkey_arr[i], o_orderdate_arr[i], shippriority_arr[i] };
+            groups[k] += revenue;
+        }
+    }
+
+    double total = 0.0;
+    for (const auto& kv : groups) total += kv.second;
+    return total;
+}
+// Mirrors GPU kernels decimal point exactly.
+static uint64_t cpu_q3_fixed(
+    const std::vector<float>& ext_price,
+    const std::vector<float>& discount,
+    const std::vector<int>& l_shipdate_arr,
+    const std::vector<int>& o_orderdate_arr,
+    int cutoff_ymd
+) {
+    uint64_t sum_cents = 0;
+    const size_t Nlocal = l_shipdate_arr.size();
+    for (size_t i = 0; i < Nlocal; i++) {
+        if (o_orderdate_arr[i] < cutoff_ymd && l_shipdate_arr[i] > cutoff_ymd) {
+            float rev = ext_price[i] * (1.0f - discount[i]);
+            sum_cents += (uint64_t)(rev * 100.0f + 0.5f);
+        }
+    }
+    return sum_cents;
+}
+
 csv.close();
 std::cout << "\nWrote q3_results.csv\n";
 // ---------- Cleanup ----------
