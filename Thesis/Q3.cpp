@@ -232,6 +232,47 @@ static uint64_t cpu_q3_fixed(
     return sum_cents;
 }
 
+// openCl Kernel
+
+static const char* kernel_src = R"CLC(
+__kernel void q3_aggregate(
+    __global const float* ext_price,
+    __global const float* discount,
+    __global const int*   l_shipdate,
+    __global const int*   o_orderdate,
+    __global ulong*       out_partials,
+    const int  cutoff_ymd,
+    const uint N
+) {
+    uint gid   = get_global_id(0);
+    uint lid   = get_local_id(0);
+    uint group = get_group_id(0);
+    uint lsize = get_local_size(0);
+
+    __local ulong lsum[256];
+    ulong x = 0;
+
+    if (gid < N) {
+        int sd = l_shipdate[gid];
+        int od = o_orderdate[gid];
+        if (od < cutoff_ymd && sd > cutoff_ymd) {
+            float rev = ext_price[gid] * (1.0f - discount[gid]);
+            x = (ulong)(rev * 100.0f + 0.5f);
+        }
+    }
+
+    lsum[lid] = x;
+    barrier(CLK_LOCAL_MEM_FENCE);
+
+    for (uint stride = lsize / 2; stride > 0; stride >>= 1) {
+        if (lid < stride) lsum[lid] += lsum[lid + stride];
+        barrier(CLK_LOCAL_MEM_FENCE);
+    }
+
+    if (lid == 0) out_partials[group] = lsum[0];
+}
+)CLC";
+
 csv.close();
 std::cout << "\nWrote q3_results.csv\n";
 // ---------- Cleanup ----------
