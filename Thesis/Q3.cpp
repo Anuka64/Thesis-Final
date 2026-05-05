@@ -273,6 +273,103 @@ __kernel void q3_aggregate(
 }
 )CLC";
 
+//-------------------------------------- MAIN-----------------------------------------------------
+int main(int argc, char** argv) {
+    if (argc < 4) {
+        std::cerr << "Usage: " << argv[0]
+            << " customer.tbl orders.tbl lineitem.tbl [warmup] [reps]\n";
+        return 1;
+    }
+
+    const std::string customer_path = argv[1];
+    const std::string orders_path = argv[2];
+    const std::string lineitem_path = argv[3];
+
+    const int WARMUP = (argc > 4) ? std::atoi(argv[4]) : 20;
+    const int REPS = (argc > 5) ? std::atoi(argv[5]) : 50;
+
+    std::cout << "Loading customer from: " << customer_path << "\n";
+    std::unordered_set<int32_t> building_custkeys;
+    load_customer(customer_path, building_custkeys);
+    std::cout << "  Building-segment customers: " << building_custkeys.size() << "\n";
+
+    std::cout << "Loading orders from: " << orders_path << "\n";
+    std::unordered_map<int32_t, OrderInfo> order_map;
+    load_orders_q3(orders_path, building_custkeys, order_map);
+    std::cout << "  Qualifying orders: " << order_map.size() << "\n";
+
+    std::cout << "Loading and pre-joining lineitem from: " << lineitem_path << "\n";
+    std::vector<float>   ext_price, discount;
+    std::vector<int>     l_shipdate_arr, o_orderdate_arr;
+    std::vector<int32_t> orderkey_arr, shippriority_arr;
+    int minShipYMD, maxShipYMD, minOrderYMD, maxOrderYMD;
+
+    load_lineitem_q3(lineitem_path, order_map,
+        ext_price, discount, l_shipdate_arr, o_orderdate_arr,
+        orderkey_arr, shippriority_arr,
+        minShipYMD, maxShipYMD, minOrderYMD, maxOrderYMD);
+
+    const uint32_t N = (uint32_t)l_shipdate_arr.size();
+    std::cout << "  Pre-joined rows (N): " << N << "\n";
+    std::cout << "  Shipdate range:      " << yyyymmdd_to_string(minShipYMD)
+        << " to " << yyyymmdd_to_string(maxShipYMD) << "\n";
+    std::cout << "  Orderdate range:     " << yyyymmdd_to_string(minOrderYMD)
+        << " to " << yyyymmdd_to_string(maxOrderYMD) << "\n\n";
+
+
+	// ---------- OpenCL setup ----------
+    cl_platform_id platform;
+    CHECK_CL(clGetPlatformIDs(1, &platform, nullptr));
+    cl_device_id device;
+    CHECK_CL(clGetDeviceIDs(platform, CL_DEVICE_TYPE_GPU, 1, &device, nullptr));
+
+    char dev_name[256];
+    CHECK_CL(clGetDeviceInfo(device, CL_DEVICE_NAME, sizeof(dev_name), dev_name, nullptr));
+    std::cout << "Using device: " << dev_name << "\n";
+
+    cl_int err;
+    cl_context ctx = clCreateContext(nullptr, 1, &device, nullptr, nullptr, &err);
+    CHECK_CL(err);
+    cl_command_queue q = clCreateCommandQueue(ctx, device, CL_QUEUE_PROFILING_ENABLE, &err);
+    CHECK_CL(err);
+
+    const char* src_ptr = kernel_src;
+    size_t src_len = std::strlen(kernel_src);
+    cl_program prog = clCreateProgramWithSource(ctx, 1, &src_ptr, &src_len, &err);
+    CHECK_CL(err);
+
+    err = clBuildProgram(prog, 1, &device, nullptr, nullptr, nullptr);
+    if (err != CL_SUCCESS) {
+        size_t log_size;
+        clGetProgramBuildInfo(prog, device, CL_PROGRAM_BUILD_LOG, 0, nullptr, &log_size);
+        std::vector<char> build_log(log_size);
+        clGetProgramBuildInfo(prog, device, CL_PROGRAM_BUILD_LOG, log_size, build_log.data(), nullptr);
+        std::cerr << "Build log:\n" << build_log.data() << "\n";
+        CHECK_CL(err);
+    }
+
+    cl_kernel k = clCreateKernel(prog, "q3_aggregate", &err);
+    CHECK_CL(err);
+
+	// Create buffers and transfer data to GPU--------
+    cl_mem d_ext_price = clCreateBuffer(ctx, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
+        sizeof(float) * N, ext_price.data(), &err);    CHECK_CL(err);
+    cl_mem d_discount = clCreateBuffer(ctx, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
+        sizeof(float) * N, discount.data(), &err);     CHECK_CL(err);
+    cl_mem d_l_shipdate = clCreateBuffer(ctx, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
+        sizeof(int) * N, l_shipdate_arr.data(), &err); CHECK_CL(err);
+    cl_mem d_o_orderdate = clCreateBuffer(ctx, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
+        sizeof(int) * N, o_orderdate_arr.data(), &err); CHECK_CL(err);
+
+    const size_t local = 256;
+    const size_t global = ((size_t(N) + local - 1) / local) * local;
+    const size_t num_groups = global / local;
+
+    std::cout << "Workgroups: " << num_groups << " (local size: " << local << ")\n\n";
+
+    cl_mem d_partials = clCreateBuffer(ctx, CL_MEM_WRITE_ONLY,
+        sizeof(uint64_t) * num_groups, nullptr, &err); CHECK_CL(err);
+
 csv.close();
 std::cout << "\nWrote q3_results.csv\n";
 // ---------- Cleanup ----------
