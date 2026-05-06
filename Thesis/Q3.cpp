@@ -370,6 +370,220 @@ int main(int argc, char** argv) {
     cl_mem d_partials = clCreateBuffer(ctx, CL_MEM_WRITE_ONLY,
         sizeof(uint64_t) * num_groups, nullptr, &err); CHECK_CL(err);
 
+
+
+	// Cutoff calculation
+
+    const int NUM_CANDIDATES = 500;
+
+    std::vector<int> candidate_cutoffs;
+    {
+        std::vector<int> all_dates;
+        all_dates.reserve(l_shipdate_arr.size() + o_orderdate_arr.size());
+        for (int d : l_shipdate_arr)  all_dates.push_back(d);
+        for (int d : o_orderdate_arr) all_dates.push_back(d);
+        std::sort(all_dates.begin(), all_dates.end());
+        all_dates.erase(std::unique(all_dates.begin(), all_dates.end()), all_dates.end());
+
+        const int nc = std::min((int)all_dates.size(), NUM_CANDIDATES);
+        for (int ci = 0; ci < nc; ci++) {
+            size_t idx = (size_t)ci * (all_dates.size() - 1) / (size_t)(nc - 1);
+            candidate_cutoffs.push_back(all_dates[idx]);
+        }
+    }
+
+    const int nc = (int)candidate_cutoffs.size();
+    std::vector<double> candidate_sel(nc, 0.0);
+
+    std::cout << "Calibrating cutoffs (scanning " << nc << " candidates over " << N << " rows)...\n";
+    for (int ci = 0; ci < nc; ci++) {
+        int C = candidate_cutoffs[ci];
+        uint64_t cnt = 0;
+        for (uint32_t i = 0; i < N; i++) {
+            if (o_orderdate_arr[i] < C && l_shipdate_arr[i] > C) cnt++;
+        }
+        candidate_sel[ci] = double(cnt) / double(N);
+    }
+
+    double peak_sel = *std::max_element(candidate_sel.begin(), candidate_sel.end());
+    std::cout << "  Peak achievable selectivity: " << std::fixed << std::setprecision(6)
+        << peak_sel << " (" << std::setprecision(2) << peak_sel * 100.0 << "%)\n";
+
+    const int NUM_TARGETS = 10;
+    std::vector<double> targets;
+    for (int ti = 0; ti < NUM_TARGETS; ti++) {
+        double t = peak_sel * (ti + 1.0) / double(NUM_TARGETS);
+        targets.push_back(t);
+    }
+
+    std::vector<int> cutoffs;
+    for (double target_s : targets) {
+        int    best_ci = 0;
+        double best_diff = std::abs(candidate_sel[0] - target_s);
+        for (int ci = 1; ci < nc; ci++) {
+            double diff = std::abs(candidate_sel[ci] - target_s);
+            if (diff < best_diff) { best_diff = diff; best_ci = ci; }
+        }
+        cutoffs.push_back(candidate_cutoffs[best_ci]);
+    }
+    std::cout << "Calibration done.\n\n";
+
+	// CSV output setup
+    std::ofstream csv("q3_results.csv");
+    csv << "target_selectivity,cutoff_date,achieved_selectivity,"
+        << "kernel_ms_min,kernel_ms_median,kernel_ms_max,"
+        << "total_execution_time_median,overhead_ms,overhead_percentage,"
+        << "gpu_to_cpu_transfer_in_ms,cpu_reduction_time_in_ms,"
+        << "thread_utilization_percentage,wasted_threads_percentage,"
+        << "data_efficiency_percentage,useful_data_MB,total_data_MB,"
+        << "bandwidth_GB_per_sec,"
+        << "validation_cpu_result,validation_gpu_result,abs_err_cents,rel_err\n";
+    csv << std::fixed << std::setprecision(9);
+
+    struct TimingResult {
+        double   kernel_ms;
+        double   wall_ms;
+        double   d2h_ms;
+        double   cpu_finalize_ms;
+        uint64_t gpu_sum_cents;
+    };
+
+    std::vector<uint64_t> partials(num_groups);
+
+    auto launch_once = [&](int cutoff_ymd) -> TimingResult {
+        TimingResult timing;
+        auto wall_t0 = std::chrono::high_resolution_clock::now();
+
+        CHECK_CL(clSetKernelArg(k, 0, sizeof(cl_mem), &d_ext_price));
+        CHECK_CL(clSetKernelArg(k, 1, sizeof(cl_mem), &d_discount));
+        CHECK_CL(clSetKernelArg(k, 2, sizeof(cl_mem), &d_l_shipdate));
+        CHECK_CL(clSetKernelArg(k, 3, sizeof(cl_mem), &d_o_orderdate));
+        CHECK_CL(clSetKernelArg(k, 4, sizeof(cl_mem), &d_partials));
+        CHECK_CL(clSetKernelArg(k, 5, sizeof(int), &cutoff_ymd));
+        CHECK_CL(clSetKernelArg(k, 6, sizeof(cl_uint), &N));
+
+        cl_event evt;
+        CHECK_CL(clEnqueueNDRangeKernel(q, k, 1, nullptr, &global, &local, 0, nullptr, &evt));
+        CHECK_CL(clFinish(q));
+
+        cl_ulong t0 = 0, t1 = 0;
+        CHECK_CL(clGetEventProfilingInfo(evt, CL_PROFILING_COMMAND_START, sizeof(t0), &t0, nullptr));
+        CHECK_CL(clGetEventProfilingInfo(evt, CL_PROFILING_COMMAND_END, sizeof(t1), &t1, nullptr));
+        timing.kernel_ms = double(t1 - t0) * 1e-6;
+        clReleaseEvent(evt);
+
+        auto d2h_t0 = std::chrono::high_resolution_clock::now();
+        CHECK_CL(clEnqueueReadBuffer(q, d_partials, CL_TRUE, 0,
+            sizeof(uint64_t) * num_groups, partials.data(), 0, nullptr, nullptr));
+        auto d2h_t1 = std::chrono::high_resolution_clock::now();
+        timing.d2h_ms = std::chrono::duration<double, std::milli>(d2h_t1 - d2h_t0).count();
+
+        auto cpu_t0 = std::chrono::high_resolution_clock::now();
+        uint64_t sum_cents = 0;
+        for (size_t i = 0; i < num_groups; i++) sum_cents += partials[i];
+        timing.gpu_sum_cents = sum_cents;
+        auto cpu_t1 = std::chrono::high_resolution_clock::now();
+        timing.cpu_finalize_ms = std::chrono::duration<double, std::milli>(cpu_t1 - cpu_t0).count();
+
+        auto wall_t1 = std::chrono::high_resolution_clock::now();
+        timing.wall_ms = std::chrono::duration<double, std::milli>(wall_t1 - wall_t0).count();
+        return timing;
+        };
+
+    std::cout << "Starting Q3 selectivity sweep...\n";
+    std::cout << "target_s | cutoff     | achieved_s | kernel_ms  | wall_ms   | overhead% | err_cents | rel_err\n";
+    std::cout << "---------------------------------------------------------------------------------------------------\n";
+
+    for (size_t t_idx = 0; t_idx < targets.size(); t_idx++) {
+        double target_s = targets[t_idx];
+        int    cutoff_ymd = cutoffs[t_idx];
+
+        uint64_t cpu_matched = 0;
+        double cpu_revenue = cpu_q3(ext_price, discount, l_shipdate_arr, o_orderdate_arr,
+            orderkey_arr, shippriority_arr, cutoff_ymd, cpu_matched);
+        const double achieved_s = double(cpu_matched) / double(N);
+
+        uint64_t cpu_sum_cents = cpu_q3_fixed(ext_price, discount,
+            l_shipdate_arr, o_orderdate_arr, cutoff_ymd);
+
+        for (int i = 0; i < WARMUP; i++) { TimingResult dummy = launch_once(cutoff_ymd); (void)dummy; }
+
+        std::vector<TimingResult> timings;
+        timings.reserve(REPS);
+        for (int r = 0; r < REPS; r++) {
+            timings.push_back(launch_once(cutoff_ymd));
+            sleep_ms(200);
+        }
+
+        std::sort(timings.begin(), timings.end(), [](const TimingResult& a, const TimingResult& b) {
+            return a.kernel_ms < b.kernel_ms; });
+        const size_t remove_count = timings.size() * 35 / 100;
+        std::vector<TimingResult> filtered_kernel;
+        for (size_t i = remove_count; i < timings.size() - remove_count; i++)
+            filtered_kernel.push_back(timings[i]);
+
+        const double ms_min = filtered_kernel.front().kernel_ms;
+        const double ms_max = filtered_kernel.back().kernel_ms;
+        const double ms_med = filtered_kernel[filtered_kernel.size() / 2].kernel_ms;
+
+        std::vector<TimingResult> timings_by_wall = timings;
+        std::sort(timings_by_wall.begin(), timings_by_wall.end(), [](const TimingResult& a, const TimingResult& b) {
+            return a.wall_ms < b.wall_ms; });
+        std::vector<TimingResult> filtered_wall;
+        for (size_t i = remove_count; i < timings_by_wall.size() - remove_count; i++)
+            filtered_wall.push_back(timings_by_wall[i]);
+
+        const double wall_ms_med = filtered_wall[filtered_wall.size() / 2].wall_ms;
+        const double d2h_ms_med = filtered_wall[filtered_wall.size() / 2].d2h_ms;
+        const double cpu_finalize_ms_med = filtered_wall[filtered_wall.size() / 2].cpu_finalize_ms;
+        const double overhead_ms = wall_ms_med - ms_med;
+        const double overhead_pct = (overhead_ms / wall_ms_med) * 100.0;
+
+        const uint64_t gpu_sum_cents = filtered_wall[filtered_wall.size() / 2].gpu_sum_cents;
+        const double   gpu_revenue = double(gpu_sum_cents) / 100.0;
+
+
+
+		// Absolute error in cents to avoid floating point issues. Mirrors GPU kernel's fixed-point calculation.
+
+        const uint64_t abs_err_cents = (cpu_sum_cents > gpu_sum_cents)
+            ? cpu_sum_cents - gpu_sum_cents : gpu_sum_cents - cpu_sum_cents;
+
+        // Relative difference between GPU (float) and CPU double-precision total.
+        const double rel_err = (cpu_revenue > 0.0)
+			? std::abs(cpu_revenue - gpu_revenue) / cpu_revenue : 0.0; // Avoid division by zero.
+
+        const double thread_util_pct = achieved_s * 100.0;
+        const double wasted_threads_pct = (1.0 - achieved_s) * 100.0;
+        const double row_size_bytes = sizeof(float) * 2 + sizeof(int) * 2;
+        const double useful_data_MB = double(cpu_matched) * row_size_bytes / 1e6;
+        const double total_data_MB = double(N) * row_size_bytes / 1e6;
+        const double data_efficiency_pct = compute_data_efficiency(cpu_matched, N) * 100.0;
+        const double bytes_read = double(N) * row_size_bytes;
+        const double bytes_written = double(num_groups) * sizeof(uint64_t);
+        const double total_bytes = bytes_read + bytes_written;
+        const double theoritical_gbps_med = total_bytes / (ms_med * 1e6);
+
+        csv << target_s << "," << yyyymmdd_to_string(cutoff_ymd) << "," << achieved_s << ","
+            << ms_min << "," << ms_med << "," << ms_max << ","
+            << wall_ms_med << "," << overhead_ms << "," << overhead_pct << ","
+            << d2h_ms_med << "," << cpu_finalize_ms_med << ","
+            << thread_util_pct << "," << wasted_threads_pct << ","
+            << data_efficiency_pct << "," << useful_data_MB << "," << total_data_MB << ","
+            << theoritical_gbps_med << ","
+            << cpu_revenue << "," << gpu_revenue << "," << abs_err_cents << "," << rel_err << "\n";
+
+        std::cout << std::fixed << std::setprecision(3);
+        std::cout << std::setw(8) << target_s << " | "
+            << std::setw(10) << yyyymmdd_to_string(cutoff_ymd) << " | "
+            << std::setw(10) << std::setprecision(6) << achieved_s << " | "
+            << std::setw(10) << std::setprecision(3) << ms_med << " | "
+            << std::setw(9) << wall_ms_med << " | "
+            << std::setw(9) << std::setprecision(1) << overhead_pct << " | "
+            << std::setw(9) << abs_err_cents << " | "
+            << std::setprecision(6) << rel_err << "\n";
+    }
+
 csv.close();
 std::cout << "\nWrote q3_results.csv\n";
 // ---------- Cleanup ----------
