@@ -186,32 +186,33 @@ static void load_lineitem_q3(
 
 // CPU reference implementation for validation.
 
-static double cpu_q3(
+static void cpu_q3_ref(
     const std::vector<float>& ext_price,
     const std::vector<float>& discount,
     const std::vector<int>& l_shipdate_arr,
     const std::vector<int>& o_orderdate_arr,
-    const std::vector<int32_t>& orderkey_arr,
-    const std::vector<int32_t>& shippriority_arr,
+    
     int cutoff_ymd,
     uint64_t& matched_count
+    uint64_t& sum_cents,
+    double& sum_double
 ) {
-    std::map<Q3GroupKey, double> groups;
+  
     matched_count = 0;
+    sum_cents = 0;
+    sum_double = 0.0;
     const size_t Nlocal = l_shipdate_arr.size();
 
     for (size_t i = 0; i < Nlocal; i++) {
         if (o_orderdate_arr[i] < cutoff_ymd && l_shipdate_arr[i] > cutoff_ymd) {
             matched_count++;
+            float  rev_f = ext_price[i] * (1.0f - discount[i]);
             double revenue = double(ext_price[i]) * (1.0 - double(discount[i]));
-            Q3GroupKey k{ orderkey_arr[i], o_orderdate_arr[i], shippriority_arr[i] };
-            groups[k] += revenue;
+            sum_cents += (uint64_t)(rev_f * 100.0f + 0.5f);
+            sum_double += rev_d;
         }
     }
 
-    double total = 0.0;
-    for (const auto& kv : groups) total += kv.second;
-    return total;
 }
 // Mirrors GPU kernels decimal point exactly.
 static uint64_t cpu_q3_fixed(
@@ -498,13 +499,11 @@ int main(int argc, char** argv) {
         double target_s = targets[t_idx];
         int    cutoff_ymd = cutoffs[t_idx];
 
-        uint64_t cpu_matched = 0;
-        double cpu_revenue = cpu_q3(ext_price, discount, l_shipdate_arr, o_orderdate_arr,
-            orderkey_arr, shippriority_arr, cutoff_ymd, cpu_matched);
+        uint64_t cpu_matched = 0, cpu_sum_cents = 0;
+        double   cpu_revenue = 0.0;
+        cpu_q3_ref(ext_price, discount, l_shipdate_arr, o_orderdate_arr,
+            cutoff_ymd, cpu_matched, cpu_sum_cents, cpu_revenue);
         const double achieved_s = double(cpu_matched) / double(N);
-
-        uint64_t cpu_sum_cents = cpu_q3_fixed(ext_price, discount,
-            l_shipdate_arr, o_orderdate_arr, cutoff_ymd);
 
         for (int i = 0; i < WARMUP; i++) { TimingResult dummy = launch_once(cutoff_ymd); (void)dummy; }
 
