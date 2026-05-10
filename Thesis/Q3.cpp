@@ -11,7 +11,6 @@
 #include <iomanip>
 #include <iostream>
 #include <limits>
-#include <map>
 #include <sstream>
 #include <string>
 #include <unordered_map>
@@ -191,9 +190,8 @@ static void cpu_q3_ref(
     const std::vector<float>& discount,
     const std::vector<int>& l_shipdate_arr,
     const std::vector<int>& o_orderdate_arr,
-    
     int cutoff_ymd,
-    uint64_t& matched_count
+    uint64_t& matched_count,
     uint64_t& sum_cents,
     double& sum_double
 ) {
@@ -207,30 +205,12 @@ static void cpu_q3_ref(
         if (o_orderdate_arr[i] < cutoff_ymd && l_shipdate_arr[i] > cutoff_ymd) {
             matched_count++;
             float  rev_f = ext_price[i] * (1.0f - discount[i]);
-            double revenue = double(ext_price[i]) * (1.0 - double(discount[i]));
+            double rev_d = double(ext_price[i]) * (1.0 - double(discount[i]));
             sum_cents += (uint64_t)(rev_f * 100.0f + 0.5f);
             sum_double += rev_d;
         }
     }
 
-}
-// Mirrors GPU kernels decimal point exactly.
-static uint64_t cpu_q3_fixed(
-    const std::vector<float>& ext_price,
-    const std::vector<float>& discount,
-    const std::vector<int>& l_shipdate_arr,
-    const std::vector<int>& o_orderdate_arr,
-    int cutoff_ymd
-) {
-    uint64_t sum_cents = 0;
-    const size_t Nlocal = l_shipdate_arr.size();
-    for (size_t i = 0; i < Nlocal; i++) {
-        if (o_orderdate_arr[i] < cutoff_ymd && l_shipdate_arr[i] > cutoff_ymd) {
-            float rev = ext_price[i] * (1.0f - discount[i]);
-            sum_cents += (uint64_t)(rev * 100.0f + 0.5f);
-        }
-    }
-    return sum_cents;
 }
 
 // openCl Kernel
@@ -298,17 +278,17 @@ int main(int argc, char** argv) {
     std::unordered_map<int32_t, OrderInfo> order_map;
     load_orders_q3(orders_path, building_custkeys, order_map);
     std::cout << "  Qualifying orders: " << order_map.size() << "\n";
+    building_custkeys.clear();
 
     std::cout << "Loading and pre-joining lineitem from: " << lineitem_path << "\n";
     std::vector<float>   ext_price, discount;
     std::vector<int>     l_shipdate_arr, o_orderdate_arr;
-    std::vector<int32_t> orderkey_arr, shippriority_arr;
     int minShipYMD, maxShipYMD, minOrderYMD, maxOrderYMD;
 
     load_lineitem_q3(lineitem_path, order_map,
         ext_price, discount, l_shipdate_arr, o_orderdate_arr,
-        orderkey_arr, shippriority_arr,
         minShipYMD, maxShipYMD, minOrderYMD, maxOrderYMD);
+    order_map.clear();
 
     const uint32_t N = (uint32_t)l_shipdate_arr.size();
     std::cout << "  Pre-joined rows (N): " << N << "\n";
@@ -407,8 +387,8 @@ int main(int argc, char** argv) {
     }
 
     double peak_sel = *std::max_element(candidate_sel.begin(), candidate_sel.end());
-    std::cout << "  Peak achievable selectivity: " << std::fixed << std::setprecision(6)
-        << peak_sel << " (" << std::setprecision(2) << peak_sel * 100.0 << "%)\n";
+    std::cout << "  Peak selectivity: " << std::fixed << std::setprecision(4)
+        << peak_sel * 100.0 << "%\n";
 
     const int NUM_TARGETS = 10;
     std::vector<double> targets;
@@ -492,7 +472,7 @@ int main(int argc, char** argv) {
         };
 
     std::cout << "Starting Q3 selectivity sweep...\n";
-    std::cout << "target_s | cutoff     | achieved_s | kernel_ms  | wall_ms   | overhead% | err_cents | rel_err\n";
+    std::cout << "target_s | cutoff     | achieved_s | kernel_ms  | wall_ms   | overhead% | abs-err_cents | rel_err\n";
     std::cout << "---------------------------------------------------------------------------------------------------\n";
 
     for (size_t t_idx = 0; t_idx < targets.size(); t_idx++) {
@@ -560,8 +540,9 @@ int main(int argc, char** argv) {
         const double data_efficiency_pct = compute_data_efficiency(cpu_matched, N) * 100.0;
         const double bytes_read = double(N) * row_size_bytes;
         const double bytes_written = double(num_groups) * sizeof(uint64_t);
-        const double total_bytes = bytes_read + bytes_written;
-        const double theoritical_gbps_med = total_bytes / (ms_med * 1e6);
+  
+        const double theoritical_gbps_med = (bytes_read + bytes_written) / (ms_med * 1e6);
+
 
         csv << target_s << "," << yyyymmdd_to_string(cutoff_ymd) << "," << achieved_s << ","
             << ms_min << "," << ms_med << "," << ms_max << ","
@@ -586,20 +567,12 @@ int main(int argc, char** argv) {
 csv.close();
 std::cout << "\nWrote q3_results.csv\n";
 // ---------- Cleanup ----------
-clReleaseMemObject(d_quantity);
-clReleaseMemObject(d_price);
+
+clReleaseMemObject(d_ext_price);
 clReleaseMemObject(d_discount);
-clReleaseMemObject(d_tax);
-clReleaseMemObject(d_returnflag);
-clReleaseMemObject(d_linestatus);
-clReleaseMemObject(d_shipdate);
-clReleaseMemObject(d_partials_qty);
-clReleaseMemObject(d_partials_base);
-clReleaseMemObject(d_partials_disc);
-clReleaseMemObject(d_partials_charge);
-clReleaseMemObject(d_partials_discount);
-clReleaseMemObject(d_partials_count);
-clReleaseMemObject(d_partials_matched);
+clReleaseMemObject(d_l_shipdate);
+clReleaseMemObject(d_o_orderdate);
+clReleaseMemObject(d_partials);
 clReleaseKernel(k);
 clReleaseProgram(prog);
 clReleaseCommandQueue(q);
