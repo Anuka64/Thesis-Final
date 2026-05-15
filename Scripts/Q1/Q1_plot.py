@@ -40,7 +40,7 @@ def RQ1_divergence_and_bandwidth(df):
     ax1.grid(True, alpha=0.3)
     ax1.legend()
 
-    total_mb = df['total_data_MB'].iloc[0]
+    total_mb = df['total_data_MB'].max ()
     ax2.plot(df['sel_pct'], df['useful_data_MB'], 'o-', linewidth=2, markersize=8,
              label='Useful data read (MB)')
     ax2.axhline(y=total_mb, color='r', linestyle='--', linewidth=2,
@@ -190,8 +190,8 @@ def Q1_active_groups(df):
     ax.set_title('Q1: Active GROUP BY Groups vs Selectivity',
                  fontsize=14, fontweight='bold')
     ax.set_ylim(0, 5)
-    ax.set_yticks([0, 1, 2, 3, 4, 5])
-    ax.grid(True, alpha=0.3, axis='y')
+    ax.set_ylim(0, df['num_groups'].max() * 1.3)
+    ax.set_yticks(range(0, int(df['num_groups'].max()) + 2))
 
     for pos, (_, row) in zip(positions, df.iterrows()):
         ax.text(pos, row['num_groups'] + 0.15, f"{int(row['num_groups'])}",
