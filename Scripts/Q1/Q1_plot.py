@@ -47,7 +47,7 @@ def RQ1_divergence_and_bandwidth(df):
                 label=f'Total data scanned ({total_mb:.0f} MB)')
     ax2.set_xlabel('Selectivity (%)')
     ax2.set_ylabel('Data (MB)')
-    ax2.set_title('Useful vs Total Data Read\n(Total always scanned — waste grows at low selectivity)')
+    ax2.set_title('Useful vs Total Data Read')
     ax2.set_xscale('log')
     ax2.set_ylim(0, total_mb * 1.2)
     ax2.grid(True, alpha=0.3)
@@ -114,7 +114,7 @@ def RQ3_kernel_scaling_and_bandwidth(df):
              color='green', markersize=8, label='Observed BW')
     ax2.set_xlabel('Selectivity (%)')
     ax2.set_ylabel('Bandwidth (GB/s)')
-    ax2.set_title('Memory Bandwidth Utilization\n (iGPU peak = 51 GB/s; observed <1% of peak)')
+    ax2.set_title('Memory Bandwidth Utilization')
     ax2.set_xscale('log')
     ax2.set_ylim(bw_min - bw_margin, bw_max + bw_margin)
     ax2.grid(True, alpha=0.3)
@@ -164,7 +164,7 @@ def RQ4_strategy_zones(df):
     ax.set_xlabel('Selectivity (%)', fontsize=12)
     ax.set_ylabel('Kernel Time (ms)', fontsize=12)
     ax.set_title('Q1 Execution Strategy\n'
-                 '(Aggregation-Heavy: GPU cost is selectivity-independent — viable at all selectivities)',
+                 '(Aggregation-Heavy: GPU cost is selectivity-independent)',
                  fontsize=13, fontweight='bold')
     ax.set_xscale('log')
     ax.legend(fontsize=10)
