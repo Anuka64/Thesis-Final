@@ -69,7 +69,7 @@ def RQ1_divergence_and_bandwidth(df):
 
 def RQ2_end_to_end(df):
     """
-    Left:  Kernel vs total wall time — shows the overhead gap.
+    Left:  Kernel vs total wall time shows the overhead gap.
     Right: Non-kernel overhead % vs selectivity.
     """
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))

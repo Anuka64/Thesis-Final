@@ -25,7 +25,7 @@ def load_data(csv_file='q1_results.csv'):
 def RQ1_divergence_and_bandwidth(df):
     """
     Left: predicate pass rate vs aggregation-idle threads.
-    Right: useful data (MB) vs total data scanned — shows absolute memory waste.
+    Right: useful data (MB) vs total data scanned.
     """
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
 
@@ -68,7 +68,7 @@ def RQ2_end_to_end(df):
     ax1.plot(df['sel_pct'], df['wall_ms_med'], 's-', linewidth=2, label='Total Time', markersize=8)
     ax1.set_xlabel('Selectivity (%)')
     ax1.set_ylabel('Time (ms)')
-    ax1.set_title('Kernel vs End-to-End Time\n(Near-flat kernel = scan dominates; small rise from aggregation work)')
+    ax1.set_title('Kernel vs End-to-End Time')
     ax1.set_xscale('log')
     ax1.set_ylim(0, df['wall_ms_med'].max() * 1.15)
     ax1.grid(True, alpha=0.3)
@@ -100,7 +100,7 @@ def RQ3_kernel_scaling_and_bandwidth(df):
                      alpha=0.3, label='Min-Max range')
     ax1.set_xlabel('Selectivity (%)')
     ax1.set_ylabel('Kernel time (ms)')
-    ax1.set_title('Kernel performance scaling\n(Near-flat: small rise due to aggregation work at higher selectivity)')
+    ax1.set_title('Kernel performance scaling')
     ax1.set_xscale('log')
     ax1.grid(True, alpha=0.3)
     ax1.legend()
@@ -132,7 +132,7 @@ def RQ4_strategy_zones(df):
     """
     No selectivity-dependent strategy zones for Q1.
     All data points fall in the same cost band.
-    Group cardinality (2 vs 4) is annotated directly on data points.
+    Groups are (2 vs 4) is annotated directly on data points.
     """
     fig, ax = plt.subplots(figsize=(12, 6))
  
