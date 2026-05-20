@@ -4,7 +4,7 @@ from datetime import date, timedelta
  
 # ─── PATHS OF TFILES────────────────────────────────────────────────────────
 TBL_PATH        = "C:/TPC-H-V3.0.1/SF5/"       # I only ran it on SF5 but can be ran it on other level just by changing the file path
-Q6_RESULTS_CSV  = "q6_results.csv"              # neeed to fix my main code. it failed. 
+Q6_RESULTS_CSV  = "q6_results_SF5.csv"        
 Q1_RESULTS_CSV  = "q1_results_SF5.csv"
 Q3_RESULTS_CSV  = "q3_results_SF5.csv"
  

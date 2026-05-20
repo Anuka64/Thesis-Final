@@ -156,6 +156,29 @@ static double cpu_q6(
     }
     return sum;
 }
+
+// CPU fixed-point reference: mirrors GPU floating point + round it to nearest.
+
+static uint64_t cpu_q6_ck(
+    const std::vector<float>& quantity,
+    const std::vector<float>& price,
+    const std::vector<float>& discount,
+    const std::vector<int>& ship_day,
+    int lo_day,
+    int hi_day
+) {
+    uint64_t sum_cents = 0;
+    const size_t N = price.size();
+    for (size_t i = 0; i < N; i++) {
+        if (ship_day[i] >= lo_day && ship_day[i] < hi_day &&
+            discount[i] >= 0.03f && discount[i] <= 0.09f &&
+            quantity[i] < 28.0f) {
+            float y = price[i] * discount[i];
+            sum_cents += (uint64_t)(y * 100.0f + 0.5f);
+        }
+    }
+    return sum_cents;
+}
 // --- Helper for data efficiency calculation
 
 static double compute_data_efficiency(uint64_t passing_rows, uint64_t total_rows) {
@@ -198,7 +221,7 @@ __kernel void q6_kernel_reduce(
     uint group = get_group_id(0);
     uint lsize = get_local_size(0);
 
-    __local ulong lsum[256]; // requires local size <= 256
+    __local ulong lsum[256]; // requires local size <= 256 =================
     ulong x = 0;
 
    if (gid < N) {
@@ -210,7 +233,7 @@ __kernel void q6_kernel_reduce(
             qty < 28.0f) {
             float y = price[gid] * disc;
             // Convert to fixed-point cents for accuracy
-            ulong cents = (ulong)(y * 100.0f);
+            ulong cents = (ulong)(y * 100.0f + 0.5f);
             x = cents;
         }
     }
@@ -416,7 +439,7 @@ int main(int argc, char** argv) {
         << "thread_utilization_percentage,wasted_threads_percentage,"
         << "data_efficiency_percentage,useful_data_MB, total_data_MB,"
         << "bandwidth_GB_per_sec,"
-        << "cpu_result,gpu_result,abs_error\n";
+        << "cpu_result,gpu_result,abs_error_cents,rel_err\n";
     csv << std::fixed << std::setprecision(9);
 
     // Detailed timing
@@ -539,8 +562,6 @@ int main(int argc, char** argv) {
             gpu_sum_cents += partials[i];
         }
 
-        double gpu_sum = double(gpu_sum_cents) / 100.0; // convert back to dollars
-
         uint64_t cnt = cpu_q6_count(quantity, ship_day, discount, lo_day, hi_day);
         const double achieved_s = double(cnt) / double(N);
 
@@ -548,15 +569,20 @@ int main(int argc, char** argv) {
         const double wasted_threads_pct = (1.0 - achieved_s) * 100.0;
 
         //data efficiency matrics
-        const double row_size_bytes = sizeof(float) * 3 + sizeof(int); // quantity price + discount + shipday
+        const double row_size_bytes = sizeof(float) * 3 + sizeof(int); 
         const double useful_data_MB = double(cnt) * row_size_bytes / 1e6;
         const double total_data_MB = double(N) * row_size_bytes / 1e6;
         const double data_efficiency_pct = compute_data_efficiency(cnt, N) * 100.0;
 
 
         // ----- CPU reference for correctness check------
-        const double cpu_sum = cpu_q6(quantity, price, discount, ship_day, lo_day, hi_day);
-        const double abs_err = std::abs(cpu_sum - gpu_sum);
+        const uint64_t cpu_cents = cpu_q6_ck(quantity, price, discount, ship_day, lo_day, hi_day);
+        const int64_t abs_err_cents = (int64_t)gpu_sum_cents - (int64_t)cpu_cents;
+
+        const double cpu_sum_double = cpu_q6(quantity, price, discount, ship_day, lo_day, hi_day);
+        const double gpu_sum = double(gpu_sum_cents) / 100.0;
+        const double rel_err = (cpu_sum_double != 0.0)
+            ? std::abs(gpu_sum - cpu_sum_double) / std::abs(cpu_sum_double) : 0.0;
 
         // bandwidth estimate: kernel reads price + discount + shipday
         const double bytes_read = double(N) * (sizeof(float) * 3 + sizeof(int));
@@ -572,7 +598,7 @@ int main(int argc, char** argv) {
             << thread_utilization_pct << "," << wasted_threads_pct << ","
             << data_efficiency_pct << "," << useful_data_MB << "," << total_data_MB << ","
             << theoritical_gbps_med << ","
-            << cpu_sum << "," << gpu_sum << "," << abs_err << "\n";
+            << cpu_sum_double << "," << gpu_sum << "," << abs_err_cents << "," << rel_err << "\n";
 
         std::cout << std::fixed << std::setprecision(3);
         std::cout << "target_s=" << s
@@ -583,7 +609,8 @@ int main(int argc, char** argv) {
             << "  overhead=" << std::setprecision(1) << overhead_pct << "%"
             << "  thread_util=" << thread_utilization_pct << "%"
             << "  data_eff=" << data_efficiency_pct << "%"
-            << "  abs_err=" << std::setprecision(3) << abs_err
+            << "  abs_err_cents=" << abs_err_cents
+            << "  rel_err=" << std::setprecision(3) << rel_err
             << "\n";
     }
 
