@@ -345,7 +345,7 @@ int main(int argc, char** argv) {
     const int D0_day = days_since_epoch(parse_ymd(D0_str));
     std::cout << "Q6 anchor D0: " << D0_str << "\n\n";
 
-    // Build shipdate for calibration 
+    // calculate window size for calibration 
     std::vector<size_t> indices(N);
     for (size_t i = 0; i < N; i++) {
         indices[i] = i;

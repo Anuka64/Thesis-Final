@@ -142,42 +142,6 @@ def RQ3_kernel_scaling_and_bandwidth(df):
     plt.close()
 
 
-def RQ4_strategy_zones(df):
-    """Strategy zones based on selectivity."""
-    fig, ax = plt.subplots(figsize=(12, 6))
-    
-    ax.axvspan(0.1, 0.5, alpha=0.2, color='red')
-    ax.axvspan(0.5, 1.5, alpha=0.2, color='yellow')
-    ax.axvspan(1.5, 3.0, alpha=0.2, color='green')
-    
-    ax.plot(df['sel_pct'], df['kernel_ms_med'], 'o-', linewidth=3,
-            markersize=10, color='black', label='Kernel Time')
-    
-    y_top = df['kernel_ms_med'].max()
-    y_bot = df['kernel_ms_med'].min()
-    label_y = y_bot + (y_top - y_bot) * 0.85
-    
-    ax.text(0.25, label_y, 'Low\n(<0.5%)\nHigher overhead', ha='center', fontsize=10,
-            bbox=dict(boxstyle='round', facecolor='red', alpha=0.3))
-    ax.text(1.0, label_y, 'Medium\n(0.5–1.5%)', ha='center', fontsize=10,
-            bbox=dict(boxstyle='round', facecolor='yellow', alpha=0.3))
-    ax.text(2.2, label_y, 'Near-Peak\n(1.5–3.0%)', ha='center', fontsize=10,
-            bbox=dict(boxstyle='round', facecolor='green', alpha=0.3))
-    
-    ax.set_xlabel('Selectivity (%)', fontsize=12)
-    ax.set_ylabel('Kernel Time (ms)', fontsize=12)
-    ax.set_title('Q3 Execution Strategy Zones\n'
-                 '(Non-Monotonic Selectivity)', fontsize=14, fontweight='bold')
-    ax.set_xscale('log')
-    ax.legend()
-    ax.grid(True, alpha=0.3)
-    
-    plt.tight_layout()
-    plt.savefig('Q3_RQ4_strategy_zones.png', dpi=300, bbox_inches='tight')
-    print("Saved: Q3_RQ4_strategy_zones.png")
-    plt.close()
-
-
 def generate_summary_table(df):
     summary = pd.DataFrame({
         'Selectivity (%)':    df['sel_pct'].round(3),

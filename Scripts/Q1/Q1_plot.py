@@ -128,52 +128,6 @@ def RQ3_kernel_scaling_and_bandwidth(df):
     print("Saved: Q1_RQ3_scaling_bandwidth.png")
     plt.close()
 
-def RQ4_strategy_zones(df):
-    """
-    No selectivity-dependent strategy zones for Q1.
-    All data points fall in the same cost band.
-    Groups are (2 vs 4) is annotated directly on data points.
-    """
-    fig, ax = plt.subplots(figsize=(12, 6))
- 
-    ax.axvspan(df['sel_pct'].min() * 0.5, df['sel_pct'].max() * 1.5,
-               alpha=0.08, color='green')
- 
-    ax.plot(df['sel_pct'], df['kernel_ms_med'], 'o-', linewidth=3,
-            markersize=10, color='black', label='Kernel Time')
- 
-    ymin = df['kernel_ms_med'].min()
-    ymax = df['kernel_ms_med'].max()
-    band_margin = (ymax - ymin) * 0.5
-    ax.axhspan(ymin - band_margin, ymax + band_margin,
-               alpha=0.12, color='blue',
-               label=f'Constant cost band ({ymin:.0f}–{ymax:.0f} ms)')
- 
-    for i, (_, row) in enumerate(df.iterrows()):
-        offset = 14 if i % 2 == 0 else -22
-        ax.annotate(f"{int(row['num_groups'])} groups",
-                    xy=(row['sel_pct'], row['kernel_ms_med']),
-                    xytext=(0, offset),
-                    textcoords='offset points',
-                    ha='center', fontsize=9,
-                    bbox=dict(boxstyle='round,pad=0.3',
-                              facecolor='white', edgecolor='gray', alpha=0.8))
- 
-    ax.set_xlim(df['sel_pct'].min() * 0.5, df['sel_pct'].max() * 1.5)
-    ax.set_ylim(ymin - 10, ymax + 15)
-    ax.set_xlabel('Selectivity (%)', fontsize=12)
-    ax.set_ylabel('Kernel Time (ms)', fontsize=12)
-    ax.set_title('Q1 Execution Strategy\n'
-                 '(Aggregation-Heavy: GPU cost is selectivity-independent)',
-                 fontsize=13, fontweight='bold')
-    ax.set_xscale('log')
-    ax.legend(fontsize=10)
-    ax.grid(True, alpha=0.3)
- 
-    plt.tight_layout()
-    plt.savefig('Q1_rq4_strategy_zones.png', dpi=300, bbox_inches='tight')
-    print("Saved: Q1_rq4_strategy_zones.png")
-    plt.close()
 
 def Q1_active_groups(df):
     """

@@ -106,42 +106,6 @@ def RQ3_kernel_scaling_and_bandwidth(df):
     print ("Saved r3.png")
     plt.close()
 
-def RQ4_strategy_zones(df):
-    """
-    Shows: Colored zones with recommendations
-    """
-    fig, ax = plt.subplots(figsize=(12, 6))
-    
-    # Color-coded strategy zones
-    ax.axvspan(0.001, 0.1, alpha=0.2, color='red')
-    ax.axvspan(0.1, 2, alpha=0.2, color='yellow')
-    ax.axvspan(2, 10, alpha=0.2, color='green')
-    
-    # Plot kernel time
-    ax.plot(df['sel_pct'], df['kernel_ms_med'], 'o-', linewidth=3, 
-            markersize=10, color='black', label='Kernel Time')
-    
-    # Add zone labels
-    ax.text(0.015, ax.get_ylim()[1]*0.95, 'Very Low\n(<0.1%)\nHigh overhead', 
-            ha='center', fontsize=10, bbox=dict(boxstyle='round', facecolor='red', alpha=0.3))
-    ax.text(0.6, ax.get_ylim()[1]*0.95, 'Low-Medium\n(0.1-2%)\nModerate', 
-            ha='center', fontsize=10, bbox=dict(boxstyle='round', facecolor='yellow', alpha=0.3))
-    ax.text(5, ax.get_ylim()[1]*0.95, 'Medium-High\n(2-9%)\nGPU Recommended', 
-            ha='center', fontsize=10, bbox=dict(boxstyle='round', facecolor='green', alpha=0.3))
-    
-    ax.set_xlabel('Selectivity (%)', fontsize=12)
-    ax.set_ylabel('Kernel Time (ms)', fontsize=12)
-    ax.set_title('Execution Strategy Zones\n(Covering 0.01% to 25% Selectivity Range)', 
-                 fontsize=14, fontweight='bold')
-    ax.set_xscale('log')
-    ax.legend()
-    ax.grid(True, alpha=0.3)
-    
-    plt.tight_layout()
-    plt.savefig('rq4_strategy_zones.png', dpi=300, bbox_inches='tight')
-    print("Saved: rq4.png")
-    plt.close()
-
 def generate_summary_table(df):
     """
     Create CSV table with key metrics for easy reference
