@@ -167,10 +167,7 @@ static void cpu_q1(
         }
     }
 }
-static double compute_data_efficiency(uint64_t passing_rows, uint64_t total_rows) {
-    if (total_rows == 0) return 0.0;
-    return double(passing_rows) / double(total_rows);
-}
+
 
 // MEMORY REDUCTION KERNEL-----------------------
 static const char* kernel_src = R"CLC(
@@ -442,8 +439,7 @@ int main(int argc, char** argv)
         << "kernel_ms_min,kernel_ms_median,kernel_ms_max,"
         << "total_execution_time_median,overhead_ms,overhead_percentage,"
         << "gpu_to_cpu_transfer_in_ms,cpu_reduction_time_in_ms,"
-        << "thread_utilization_percentage,wasted_threads_percentage,"
-        << "data_efficiency_percentage,useful_data_MB,total_data_MB,"
+        << "useful_data_MB,total_data_MB,"
         << "bandwidth_GB_per_sec,"
         << "num_groups,validation_cpu_result,validation_gpu_result,abs_error\n";
     csv << std::fixed << std::setprecision(9);
@@ -635,26 +631,18 @@ int main(int argc, char** argv)
 
     // Metrics
     const double abs_err = std::abs(total_cpu_charge - total_gpu_charge);
-    const double thread_util_pct = achieved_s * 100.0;
-    const double wasted_threads_pct = (1.0 - achieved_s) * 100.0;
     const double row_size_bytes = sizeof(float) * 4 + sizeof(uint8_t) * 2 + sizeof(int);
     const double useful_data_MB = double(cpu_matched) * row_size_bytes / 1e6;
     const double total_data_MB = double(N) * row_size_bytes / 1e6;
-    const double data_efficiency_pct = compute_data_efficiency(cpu_matched, N) * 100.0;
     const double bytes_read = double(N) * row_size_bytes;
-    const double bytes_written = double(num_groups) * MAX_GROUPS * (sizeof(uint64_t) * 5 + sizeof(uint32_t)) +
-        double(num_groups) * sizeof(uint32_t);
-    const double total_bytes = bytes_read + bytes_written;
-    const double theoritical_gbps_med = total_bytes / (ms_med * 1e6);
-
+    const double bandwidth_GBps = bytes_read / (ms_med * 1e6);
     // Write CSV
     csv << target_s << "," << yyyymmdd_to_string(cutoff_ymd) << "," << achieved_s << ","
         << ms_min << "," << ms_med << "," << ms_max << ","
         << wall_ms_med << "," << overhead_ms << "," << overhead_pct << ","
         << d2h_ms_med << "," << cpu_finalize_ms_med << ","
-        << thread_util_pct << "," << wasted_threads_pct << ","
-        << data_efficiency_pct << "," << useful_data_MB << "," << total_data_MB << ","
-        << theoritical_gbps_med << ","
+        << useful_data_MB << "," << total_data_MB << ","
+        << bandwidth_GBps << ","
         << num_groups_result << "," << total_cpu_charge << "," << total_gpu_charge << "," << abs_err << "\n";
 
     // Console output

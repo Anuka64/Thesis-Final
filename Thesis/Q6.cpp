@@ -179,12 +179,8 @@ static uint64_t cpu_q6_ck(
     }
     return sum_cents;
 }
-// --- Helper for data efficiency calculation
+// --- Helper for useful data  calculation
 
-static double compute_data_efficiency(uint64_t passing_rows, uint64_t total_rows) {
-    if (total_rows == 0) return 0.0;
-    return double(passing_rows) / double(total_rows);
-}
 static uint64_t cpu_q6_count(
     const std::vector<float>& quantity,
     const std::vector<int>& ship_day,
@@ -435,9 +431,8 @@ int main(int argc, char** argv) {
     csv << "target_selectivity,window_days,start_day,end_day,achieved_selectivity,"
         << "kernel_ms_min,kernel_ms_median, kernel_ms_max,"
         << "total_execution_time_median,overhead_ms,overhead_percentage, "
+        << "useful_data_MB,total_data_MB,"
         << "gpu_to_cpu_transfer_in_ms,cpu_reduction_time_in_ms,"
-        << "thread_utilization_percentage,wasted_threads_percentage,"
-        << "data_efficiency_percentage,useful_data_MB, total_data_MB,"
         << "bandwidth_GB_per_sec,"
         << "cpu_result,gpu_result,abs_error_cents,rel_err\n";
     csv << std::fixed << std::setprecision(9);
@@ -565,14 +560,10 @@ int main(int argc, char** argv) {
         uint64_t cnt = cpu_q6_count(quantity, ship_day, discount, lo_day, hi_day);
         const double achieved_s = double(cnt) / double(N);
 
-        const double thread_utilization_pct = achieved_s * 100.0;
-        const double wasted_threads_pct = (1.0 - achieved_s) * 100.0;
-
         //data efficiency matrics
         const double row_size_bytes = sizeof(float) * 3 + sizeof(int); 
         const double useful_data_MB = double(cnt) * row_size_bytes / 1e6;
         const double total_data_MB = double(N) * row_size_bytes / 1e6;
-        const double data_efficiency_pct = compute_data_efficiency(cnt, N) * 100.0;
 
 
         // ----- CPU reference for correctness check------
@@ -586,18 +577,15 @@ int main(int argc, char** argv) {
 
         // bandwidth estimate: kernel reads price + discount + shipday
         const double bytes_read = double(N) * (sizeof(float) * 3 + sizeof(int));
-        const double bytes_written = double(num_groups) * sizeof(uint64_t);
-        const double total_bytes = bytes_read + bytes_written;
-        const double theoritical_gbps_med = total_bytes / (ms_med * 1e6);
+        const double bandwidth_GBps = bytes_read / (ms_med * 1e6);
 
         csv << s << "," << W << "," << lo_day << "," << hi_day << ","
             << achieved_s << ","
             << ms_min << "," << ms_med << "," << ms_max << ","
             << wall_ms_med << "," << overhead_ms << "," << overhead_pct << ","
             << d2h_ms_med << "," << cpu_finalize_ms_med << ","
-            << thread_utilization_pct << "," << wasted_threads_pct << ","
-            << data_efficiency_pct << "," << useful_data_MB << "," << total_data_MB << ","
-            << theoritical_gbps_med << ","
+            << useful_data_MB << "," << total_data_MB << ","
+            << bandwidth_GBps << ","
             << cpu_sum_double << "," << gpu_sum << "," << abs_err_cents << "," << rel_err << "\n";
 
         std::cout << std::fixed << std::setprecision(3);
@@ -607,8 +595,6 @@ int main(int argc, char** argv) {
             << "  kernel=" << std::setprecision(3) << ms_min << "/" << ms_max
             << "  wall=" << wall_ms_med << "ms"
             << "  overhead=" << std::setprecision(1) << overhead_pct << "%"
-            << "  thread_util=" << thread_utilization_pct << "%"
-            << "  data_eff=" << data_efficiency_pct << "%"
             << "  abs_err_cents=" << abs_err_cents
             << "  rel_err=" << std::setprecision(3) << rel_err
             << "\n";

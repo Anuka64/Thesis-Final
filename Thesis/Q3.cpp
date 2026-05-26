@@ -51,10 +51,7 @@ static std::string yyyymmdd_to_string(int yyyymmdd) {
     return oss.str();
 }
 
-static double compute_data_efficiency(uint64_t passing_rows, uint64_t total_rows) {
-    if (total_rows == 0) return 0.0;
-    return double(passing_rows) / double(total_rows);
-}
+
 
 struct OrderInfo {
     int orderdate;
@@ -266,12 +263,13 @@ int main(int argc, char** argv) {
     const std::string orders_path = argv[2];
     const std::string lineitem_path = argv[3];
 
-    const int WARMUP = (argc > 4) ? std::atoi(argv[4]) : 20;
-    const int REPS = (argc > 5) ? std::atoi(argv[5]) : 50;
+    const int WARMUP = (argc > 4) ? std::atoi(argv[4]) : 30;
+    const int REPS = (argc > 5) ? std::atoi(argv[5]) : 100;
 
     std::cout << "Loading customer from: " << customer_path << "\n";
     std::unordered_set<int32_t> building_custkeys;
     load_customer(customer_path, building_custkeys);
+    auto join_t0 = std::chrono::high_resolution_clock::now();
     std::cout << "  Building-segment customers: " << building_custkeys.size() << "\n";
 
     std::cout << "Loading orders from: " << orders_path << "\n";
@@ -289,6 +287,10 @@ int main(int argc, char** argv) {
         ext_price, discount, l_shipdate_arr, o_orderdate_arr,
         minShipYMD, maxShipYMD, minOrderYMD, maxOrderYMD);
     order_map.clear();
+
+    auto join_t1 = std::chrono::high_resolution_clock::now();  
+    const double cpu_join_ms = std::chrono::duration<double, std::milli>(join_t1 - join_t0).count();
+    std::cout << "  CPU join preprocessing time: " << cpu_join_ms << " ms\n"; 
 
     const uint32_t N = (uint32_t)l_shipdate_arr.size();
     std::cout << "  Pre-joined rows (N): " << N << "\n";
@@ -355,68 +357,67 @@ int main(int argc, char** argv) {
 
 	// Cutoff calculation
 
-    const int NUM_CANDIDATES = 500;
+    std::vector<int> all_dates;
+    all_dates.reserve(l_shipdate_arr.size() + o_orderdate_arr.size());
+    for (int d : l_shipdate_arr)  all_dates.push_back(d);
+    for (int d : o_orderdate_arr) all_dates.push_back(d);
+    std::sort(all_dates.begin(), all_dates.end());
+    all_dates.erase(std::unique(all_dates.begin(), all_dates.end()), all_dates.end());
 
-    std::vector<int> candidate_cutoffs;
-    {
-        std::vector<int> all_dates;
-        all_dates.reserve(l_shipdate_arr.size() + o_orderdate_arr.size());
-        for (int d : l_shipdate_arr)  all_dates.push_back(d);
-        for (int d : o_orderdate_arr) all_dates.push_back(d);
-        std::sort(all_dates.begin(), all_dates.end());
-        all_dates.erase(std::unique(all_dates.begin(), all_dates.end()), all_dates.end());
-
-        const int nc = std::min((int)all_dates.size(), NUM_CANDIDATES);
-        for (int ci = 0; ci < nc; ci++) {
-            size_t idx = (size_t)ci * (all_dates.size() - 1) / (size_t)(nc - 1);
-            candidate_cutoffs.push_back(all_dates[idx]);
-        }
-    }
-
-    const int nc = (int)candidate_cutoffs.size();
+    const int nc = (int)all_dates.size();
+    std::cout << "Calibrating over all " << nc << " unique dates (" << N << " rows)...\n";
     std::vector<double> candidate_sel(nc, 0.0);
-
-    std::cout << "Calibrating cutoffs (scanning " << nc << " candidates over " << N << " rows)...\n";
     for (int ci = 0; ci < nc; ci++) {
-        int C = candidate_cutoffs[ci];
-        uint64_t cnt = 0;
-        for (uint32_t i = 0; i < N; i++) {
-            if (o_orderdate_arr[i] < C && l_shipdate_arr[i] > C) cnt++;
-        }
-        candidate_sel[ci] = double(cnt) / double(N);
+         int C = all_dates[ci];
+         uint64_t cnt = 0;
+         for (uint32_t i = 0; i < N; i++) {
+              if (o_orderdate_arr[i] < C && l_shipdate_arr[i] > C) cnt++;
+         }
+         candidate_sel[ci] = double(cnt) / double(N);
     }
 
-    double peak_sel = *std::max_element(candidate_sel.begin(), candidate_sel.end());
-    std::cout << "  Peak selectivity: " << std::fixed << std::setprecision(4)
-        << peak_sel * 100.0 << "%\n";
+    // Find peak and restrict search to descending side (post-peak dates only)
+    int peak_ci = (int)(std::max_element(candidate_sel.begin(),
+        candidate_sel.end())
+        - candidate_sel.begin());
+    double peak_sel = candidate_sel[peak_ci];
 
-    const int NUM_TARGETS = 10;
-    std::vector<double> targets;
-    for (int ti = 0; ti < NUM_TARGETS; ti++) {
-        double t = peak_sel * (ti + 1.0) / double(NUM_TARGETS);
-        targets.push_back(t);
-    }
+    std::cout << "  Peak  selectivity: "
+        << std::fixed << std::setprecision(4) << peak_sel * 100.0
+        << "% at date " << yyyymmdd_to_string(all_dates[peak_ci]) << "\n";
+    std::cout << "  Searching descending side only (dates after peak).\n";
+
+
+    const std::vector<double> targets = {
+        0.0025, 0.0050, 0.0075, 0.0100,
+        0.0125, 0.0150, 0.0175, 0.0200,
+        0.0225, 0.0250
+    };
 
     std::vector<int> cutoffs;
     for (double target_s : targets) {
-        int    best_ci = 0;
-        double best_diff = std::abs(candidate_sel[0] - target_s);
-        for (int ci = 1; ci < nc; ci++) {
+        int    best_ci = peak_ci;
+        double best_diff = std::abs(candidate_sel[peak_ci] - target_s);
+        for (int ci = peak_ci + 1; ci < nc; ci++) {
             double diff = std::abs(candidate_sel[ci] - target_s);
             if (diff < best_diff) { best_diff = diff; best_ci = ci; }
         }
-        cutoffs.push_back(candidate_cutoffs[best_ci]);
+        cutoffs.push_back(all_dates[best_ci]);
+        std::cout << "  target=" << std::setprecision(4) << target_s * 100.0
+            << "%  achieved=" << candidate_sel[best_ci] * 100.0
+            << "%  cutoff=" << yyyymmdd_to_string(all_dates[best_ci]) << "\n";
     }
     std::cout << "Calibration done.\n\n";
 
 	// CSV output setup
     std::ofstream csv("q3_results.csv");
+    csv << "# cpu_join_preprocessing_ms=" << std::fixed << std::setprecision(3)
+        << cpu_join_ms << ",pre_joined_rows=" << N << "\n";
     csv << "target_selectivity,cutoff_date,achieved_selectivity,"
         << "kernel_ms_min,kernel_ms_median,kernel_ms_max,"
         << "total_execution_time_median,overhead_ms,overhead_percentage,"
         << "gpu_to_cpu_transfer_in_ms,cpu_reduction_time_in_ms,"
-        << "thread_utilization_percentage,wasted_threads_percentage,"
-        << "data_efficiency_percentage,useful_data_MB,total_data_MB,"
+        << "useful_data_MB,total_data_MB,"
         << "bandwidth_GB_per_sec,"
         << "validation_cpu_result,validation_gpu_result,abs_err_cents,rel_err\n";
     csv << std::fixed << std::setprecision(9);
@@ -532,25 +533,18 @@ int main(int argc, char** argv) {
         const double rel_err = (cpu_revenue > 0.0)
 			? std::abs(cpu_revenue - gpu_revenue) / cpu_revenue : 0.0; // Avoid division by zero.
 
-        const double thread_util_pct = achieved_s * 100.0;
-        const double wasted_threads_pct = (1.0 - achieved_s) * 100.0;
         const double row_size_bytes = sizeof(float) * 2 + sizeof(int) * 2;
         const double useful_data_MB = double(cpu_matched) * row_size_bytes / 1e6;
         const double total_data_MB = double(N) * row_size_bytes / 1e6;
-        const double data_efficiency_pct = compute_data_efficiency(cpu_matched, N) * 100.0;
         const double bytes_read = double(N) * row_size_bytes;
-        const double bytes_written = double(num_groups) * sizeof(uint64_t);
-  
-        const double theoritical_gbps_med = (bytes_read + bytes_written) / (ms_med * 1e6);
-
+        const double bandwidth_GBps = bytes_read / (ms_med * 1e6);
 
         csv << target_s << "," << yyyymmdd_to_string(cutoff_ymd) << "," << achieved_s << ","
             << ms_min << "," << ms_med << "," << ms_max << ","
             << wall_ms_med << "," << overhead_ms << "," << overhead_pct << ","
             << d2h_ms_med << "," << cpu_finalize_ms_med << ","
-            << thread_util_pct << "," << wasted_threads_pct << ","
-            << data_efficiency_pct << "," << useful_data_MB << "," << total_data_MB << ","
-            << theoritical_gbps_med << ","
+            << useful_data_MB << "," << total_data_MB << ","
+            << bandwidth_GBps << ","
             << cpu_revenue << "," << gpu_revenue << "," << abs_err_cents << "," << rel_err << "\n";
 
         std::cout << std::fixed << std::setprecision(3);
