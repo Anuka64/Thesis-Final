@@ -8,7 +8,7 @@ How do selectivity changes propagate from scan–filter operators to end-to-end 
 RQ3
 How does selectivity affect aggregation-heavy analytical queries on Intel integrated GPUs, and which hardware bottlenecks dominate at high selectivity?
 RQ4
-Based on the observed selectivity-dependent behavior of filter- and aggregation-heavy queries, what selectivity-aware optimization insights can be derived?
+Based on the observed selectivity-dependent behaviour of filter and aggregation heavy queries, what do the findings reveal about the suitability and limitations of iGPU execution for analytical queries under varying selectivity conditions?
 
 #The goal of this experiment is to demonstrate how selectivity effects iGPU performance at:
 Operator level (scan, filter, aggregation)
@@ -59,7 +59,9 @@ Sacle Factor: SF= 1. Future: SF=5 and 10
 -Q6 
 ---Full implementation of TPC-H query 6, including CPU reference for correctness   
 -Q1 
---- OpenCL implementation of TCP-H query 1 (GPU kernel only)
+--- 
+-Q3
+--
 
 #Scripts |   
 - Result collection and plotting scripts
