@@ -362,7 +362,7 @@ int main(int argc, char** argv) {
         discount_sorted[i] = discount[indices[i]];
     }
 
-    const std::vector<double> targets = { 0.0001, 0.001, 0.01, 0.05, 0.1, 0.25, 0.5, 1.0 };
+	const std::vector<double> targets = { 0.0001, 0.001, 0.01, 0.05, 0.1, 0.25 }; // removed 0.5 and 1,0 because it can not be reached.
 
     // ---------- OpenCL setup ----------
     cl_platform_id platform;

@@ -145,7 +145,6 @@ def plot_all_q6(csv_file='q6_results.csv'):
     RQ1_divergence_and_bandwidth(df)
     RQ2_end_to_end(df)
     RQ3_kernel_scaling_and_bandwidth(df)
-    RQ4_strategy_zones(df)
     
     # Generate summary table
     summary = generate_summary_table(df)
@@ -157,7 +156,6 @@ def plot_all_q6(csv_file='q6_results.csv'):
     print("  1. rq1_divergence_bandwidth.png  - Thread divergence + memory waste")
     print("  2. rq2_end_to_end.png            - Timing breakdown + overhead")
     print("  3. rq3_scaling_bandwidth.png     - Kernel scaling + bandwidth")
-    print("  4. rq4_strategy_zones.png        - Strategy recommendations")
     print("  5. summary_table.csv             - Numerical summary")
     print("\n")
 
