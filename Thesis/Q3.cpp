@@ -413,12 +413,13 @@ int main(int argc, char** argv) {
     std::ofstream csv("q3_results.csv");
     csv << "# cpu_join_preprocessing_ms=" << std::fixed << std::setprecision(3)
         << cpu_join_ms << ",pre_joined_rows=" << N << "\n";
-    csv << "target_selectivity,cutoff_date,achieved_selectivity,"
+    csv << "target_selectivity,cutoff_date,matched_rows,achieved_selectivity,"
         << "kernel_ms_min,kernel_ms_median,kernel_ms_max,"
-        << "total_execution_time_median,overhead_ms,overhead_percentage,"
+        << "total_execution_time_median,cpu_join_preprocessing_ms,total_with_preprocessing_ms,"
+        << "overhead_ms,overhead_percentage,"
         << "gpu_to_cpu_transfer_in_ms,cpu_reduction_time_in_ms,"
         << "useful_data_MB,total_data_MB,"
-        << "bandwidth_GB_per_sec,"
+        << "estimated_bandwidth_GB_per_sec,"
         << "validation_cpu_result,validation_gpu_result,abs_err_cents,rel_err\n";
     csv << std::fixed << std::setprecision(9);
 
@@ -539,9 +540,10 @@ int main(int argc, char** argv) {
         const double bytes_read = double(N) * row_size_bytes;
         const double bandwidth_GBps = bytes_read / (ms_med * 1e6);
 
-        csv << target_s << "," << yyyymmdd_to_string(cutoff_ymd) << "," << achieved_s << ","
+        csv << target_s << "," << yyyymmdd_to_string(cutoff_ymd) << "," << cpu_matched << "," << achieved_s << ","
             << ms_min << "," << ms_med << "," << ms_max << ","
-            << wall_ms_med << "," << overhead_ms << "," << overhead_pct << ","
+            << wall_ms_med << "," << cpu_join_ms << ","
+            << (cpu_join_ms + wall_ms_med) << "," << overhead_ms << "," << overhead_pct << ","
             << d2h_ms_med << "," << cpu_finalize_ms_med << ","
             << useful_data_MB << "," << total_data_MB << ","
             << bandwidth_GBps << ","

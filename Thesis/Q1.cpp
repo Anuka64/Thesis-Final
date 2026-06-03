@@ -435,13 +435,13 @@ int main(int argc, char** argv)
 
     // CSV output --------------------
     std::ofstream csv("q1_results.csv");
-    csv << "target_selectivity,cutoff_date,achieved_selectivity,"
+    csv << "target_selectivity,cutoff_date,matched_cpu,matched_gpu,matched_error,achieved_selectivity,"
         << "kernel_ms_min,kernel_ms_median,kernel_ms_max,"
         << "total_execution_time_median,overhead_ms,overhead_percentage,"
         << "gpu_to_cpu_transfer_in_ms,cpu_reduction_time_in_ms,"
         << "useful_data_MB,total_data_MB,"
-        << "bandwidth_GB_per_sec,"
-        << "num_groups,validation_cpu_result,validation_gpu_result,abs_error\n";
+        << "estimated_bandwidth_GB_per_sec,"
+        << "num_groups,validation_cpu_result,validation_gpu_result,abs_error,rel_error\n";
     csv << std::fixed << std::setprecision(9);
 
     // timing struct -----------------
@@ -611,6 +611,8 @@ int main(int argc, char** argv)
     const TimingResult& median_run = filtered_wall[filtered_wall.size() / 2];
     const uint32_t num_groups_result = median_run.num_groups;
     const double total_gpu_charge = median_run.total_charge;
+    const uint64_t matched_gpu = median_run.matched;
+    const uint64_t matched_error =(cpu_matched > matched_gpu)? cpu_matched - matched_gpu: matched_gpu - cpu_matched;
     
     // Calculate CPU total
     const char returnflags[] = { 'A', 'N', 'O', 'R' };
@@ -631,19 +633,20 @@ int main(int argc, char** argv)
 
     // Metrics
     const double abs_err = std::abs(total_cpu_charge - total_gpu_charge);
+    const double rel_err = (total_gpu_charge != 0.0) ? abs_err / std::abs(total_gpu_charge) : 0.0;
     const double row_size_bytes = sizeof(float) * 4 + sizeof(uint8_t) * 2 + sizeof(int);
     const double useful_data_MB = double(cpu_matched) * row_size_bytes / 1e6;
     const double total_data_MB = double(N) * row_size_bytes / 1e6;
     const double bytes_read = double(N) * row_size_bytes;
     const double bandwidth_GBps = bytes_read / (ms_med * 1e6);
     // Write CSV
-    csv << target_s << "," << yyyymmdd_to_string(cutoff_ymd) << "," << achieved_s << ","
+    csv << target_s << "," << yyyymmdd_to_string(cutoff_ymd) << "," << cpu_matched << "," << matched_gpu << "," << matched_error << "," << achieved_s << ","
         << ms_min << "," << ms_med << "," << ms_max << ","
         << wall_ms_med << "," << overhead_ms << "," << overhead_pct << ","
         << d2h_ms_med << "," << cpu_finalize_ms_med << ","
         << useful_data_MB << "," << total_data_MB << ","
         << bandwidth_GBps << ","
-        << num_groups_result << "," << total_cpu_charge << "," << total_gpu_charge << "," << abs_err << "\n";
+        << num_groups_result << "," << total_cpu_charge << "," << total_gpu_charge << "," << abs_err << "," << rel_err << "\n";
 
     // Console output
     std::cout << std::fixed << std::setprecision(3);
@@ -653,7 +656,7 @@ int main(int argc, char** argv)
         << std::setw(10) << std::setprecision(3) << ms_med << " | "
         << std::setw(9) << wall_ms_med << " | "
         << std::setw(9) << std::setprecision(1) << overhead_pct << " | "
-        << std::setw(6) << num_groups << " | "
+        << std::setw(6) << num_groups_result << " | "
         << std::setprecision(3) << abs_err << "\n";
     }
 

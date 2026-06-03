@@ -428,12 +428,12 @@ int main(int argc, char** argv) {
 
     // ---------- Output CSV ----------
     std::ofstream csv("q6_results.csv");
-    csv << "target_selectivity,window_days,start_day,end_day,achieved_selectivity,"
-        << "kernel_ms_min,kernel_ms_median, kernel_ms_max,"
-        << "total_execution_time_median,overhead_ms,overhead_percentage, "
-        << "useful_data_MB,total_data_MB,"
+    csv << "target_selectivity,window_days,start_day,end_day,matched_rows,achieved_selectivity,"
+        << "kernel_ms_min,kernel_ms_median,kernel_ms_max,"
+        << "total_execution_time_median,overhead_ms,overhead_percentage,"
         << "gpu_to_cpu_transfer_in_ms,cpu_reduction_time_in_ms,"
-        << "bandwidth_GB_per_sec,"
+        << "useful_data_MB,total_data_MB,"
+        << "estimated_bandwidth_GB_per_sec,"
         << "cpu_result,gpu_result,abs_error_cents,rel_err\n";
     csv << std::fixed << std::setprecision(9);
 
@@ -443,6 +443,7 @@ int main(int argc, char** argv) {
         double wall_ms;
         double d2h_ms;
         double cpu_finalize_ms;
+        uint64_t gpu_sum_cents;
     };
 
     auto launch_once_detailed = [&](int lo_day, int hi_day, std::vector<uint64_t>& out_partials) -> TimingResult {
@@ -481,6 +482,7 @@ int main(int argc, char** argv) {
         for (size_t i = 0; i < (size_t)num_groups; i++) {
             gpu_sum_cents += out_partials[i];
         }
+        timing.gpu_sum_cents = gpu_sum_cents;
         (void)gpu_sum_cents;
         auto cpu_finalize_t1 = std::chrono::high_resolution_clock::now();
         timing.cpu_finalize_ms = std::chrono::duration<double, std::milli>(cpu_finalize_t1 - cpu_finalize_t0).count();
@@ -552,10 +554,8 @@ int main(int argc, char** argv) {
 
         // Read back partials
 
-        uint64_t gpu_sum_cents = 0;
-        for (size_t i = 0; i < (size_t)num_groups; i++) {
-            gpu_sum_cents += partials[i];
-        }
+        const uint64_t gpu_sum_cents =
+            filtered_wall[filtered_wall.size() / 2].gpu_sum_cents;
 
         uint64_t cnt = cpu_q6_count(quantity, ship_day, discount, lo_day, hi_day);
         const double achieved_s = double(cnt) / double(N);
@@ -568,19 +568,17 @@ int main(int argc, char** argv) {
 
         // ----- CPU reference for correctness check------
         const uint64_t cpu_cents = cpu_q6_ck(quantity, price, discount, ship_day, lo_day, hi_day);
-        const int64_t abs_err_cents = (int64_t)gpu_sum_cents - (int64_t)cpu_cents;
-
+        const uint64_t abs_err_cents =(gpu_sum_cents > cpu_cents)? gpu_sum_cents - cpu_cents: cpu_cents - gpu_sum_cents;
         const double cpu_sum_double = cpu_q6(quantity, price, discount, ship_day, lo_day, hi_day);
         const double gpu_sum = double(gpu_sum_cents) / 100.0;
-        const double rel_err = (cpu_sum_double != 0.0)
-            ? std::abs(gpu_sum - cpu_sum_double) / std::abs(cpu_sum_double) : 0.0;
+        const double rel_err = (cpu_sum_double != 0.0)? std::abs(gpu_sum - cpu_sum_double) / std::abs(cpu_sum_double) : 0.0;
 
         // bandwidth estimate: kernel reads price + discount + shipday
         const double bytes_read = double(N) * (sizeof(float) * 3 + sizeof(int));
         const double bandwidth_GBps = bytes_read / (ms_med * 1e6);
 
         csv << s << "," << W << "," << lo_day << "," << hi_day << ","
-            << achieved_s << ","
+            << cnt << "," << achieved_s << ","
             << ms_min << "," << ms_med << "," << ms_max << ","
             << wall_ms_med << "," << overhead_ms << "," << overhead_pct << ","
             << d2h_ms_med << "," << cpu_finalize_ms_med << ","

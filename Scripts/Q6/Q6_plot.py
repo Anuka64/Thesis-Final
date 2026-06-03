@@ -9,9 +9,7 @@ def load_data(csv_file='q6_results.csv'):
         'kernel_ms_median': 'kernel_ms_med',
         'total_execution_time_median': 'wall_ms_med',
         'overhead_percentage': 'overhead_pct',
-        'thread_utilization_percentage': 'thread_utilization_pct',
-        'data_efficiency_percentage': 'data_efficiency_pct',
-        'bandwidth_GB_per_sec': 'theoritical_GBps_med'
+        'bandwidth_GB_per_sec': 'bandwidth_GBps'
     }
 
     df = df.rename(columns=column_mapping)
@@ -24,22 +22,33 @@ def RQ1_divergence_and_bandwidth(df):
     """
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
 
-    #Left: Thread divergence (what % of threads are working)
-    ax1.plot(df['sel_pct'], df ['thread_utilization_pct'], 'o-', linewidth=2, markersize=8)
+    # Left: predicate pass rate vs idle threads
+    ax1.plot(df['sel_pct'], df['sel_pct'], 'o-', linewidth=2, markersize=8,
+             label='Pred. pass rate')
+    ax1.plot(df['sel_pct'], 100 - df['sel_pct'], 's--', linewidth=2, markersize=8,
+             label='Aggregation-idle threads')
     ax1.set_xlabel('Selectivity (%)')
-    ax1.set_ylabel('Active threads(%)')
-    ax1.set_title('Thread divergence\n(Low = Many threads exit early)')
+    ax1.set_ylabel('Thread fraction (%)')
+    ax1.set_title('Predicate Pass Rate vs Selectivity')
     ax1.set_xscale('log')
     ax1.grid(True, alpha=0.3)
+    ax1.legend()
     
     #Right: Memory Bandwidth waste (what % of read data is actually used)
 
-    ax2.plot(df['sel_pct'], df ['data_efficiency_pct'], 'o-', linewidth=2, markersize=8)
+    total_mb = df['total_data_MB'].iloc[0]
+    bandwidth_waste_pct = (1 - df['useful_data_MB'] / total_mb) * 100
+
+    ax2.plot(df['sel_pct'], bandwidth_waste_pct, 'o-', linewidth=2,
+             markersize=8, color='red', label='Bandwidth waste (%)')
     ax2.set_xlabel('Selectivity (%)')
-    ax2.set_ylabel('Useful Data(%)')
-    ax2.set_title('memory bandwidth efficiency\n(Low = wasted bandwidth on flitered rows)')
+    ax2.set_ylabel('Wasted Bandwidth (%)')
+    ax2.set_title('Bandwidth Waste vs Selectivity\n'
+                  '(% of scanned data that did not contribute to result)')
     ax2.set_xscale('log')
+    ax2.set_ylim(0, 105)
     ax2.grid(True, alpha=0.3)
+    ax2.legend()
 
     plt.tight_layout()
     plt.savefig('RQ1_divergence_bandwidth.png', dpi=300)
@@ -94,7 +103,7 @@ def RQ3_kernel_scaling_and_bandwidth(df):
     ax1.legend()
 
     #Right: Memory Bandwidth 
-    ax2.plot(df['sel_pct'], df ['theoritical_GBps_med'], 'o-', linewidth=2, color='green', markersize=8)
+    ax2.plot(df['sel_pct'], df ['bandwidth_GBps'], 'o-', linewidth=2, color='green', markersize=8)
     ax2.set_xlabel('Selectivity (%)')
     ax2.set_ylabel('Bandwidth (GB/s)')
     ax2.set_title('Memory Bandwidth Utilization)')
@@ -115,9 +124,7 @@ def generate_summary_table(df):
         'Kernel (ms)': df['kernel_ms_med'].round(3),
         'Total (ms)': df['wall_ms_med'].round(3),
         'Overhead (%)': df['overhead_pct'].round(1),
-        'Thread Util (%)': df['thread_utilization_pct'].round(1),
-        'Data Efficiency (%)': df['data_efficiency_pct'].round(1),
-        'Bandwidth (GB/s)': df['theoritical_GBps_med'].round(1)
+        'Bandwidth (GB/s)': df['bandwidth_GBps'].round(1)
     })
     
     summary.to_csv('summary_table.csv', index=False)
