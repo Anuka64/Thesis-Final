@@ -1,0 +1,4 @@
+"Computing Task","Global","Local","Total Time","Average Time","Instance Count","SIMD Width","SVM Usage Type","Spill Memory Size","Host-to-Device","Device-to-Host","Active","Stalled","Idle","Peak EU Threads Occupancy","EU Threads Occupancy","Computing Threads Started","L3 Bandwidth, GB/sec","Read","Write","Read","Write","Busy","Bottleneck","GPU Barriers","GPU Atomics"
+"q3_aggregate","6019840","256","0.00869208","0.00124173","7","32","","0","0","0","0.43373","0.352358","0.213911","1","0.766026","382255","23.8629","41.728","12.2897","23.679","0.153298","0.0019337","0.000359537","6857043","0"
+"clEnqueueReadBuffer","","","4.94525e-05","7.06464e-06","7","","","","0","1316840","0","0","1","0","0","0","0","0","0","0","0","0","0","0","0"
+"[Unknown]","","","0","","","","","","","","0.0797935","0.159142","0.761065","0","0.212752","276165","0.00232607","0.00409571","0.00120236","0.00382806","0.00150131","0.113499","0.00133776","4994517","0"

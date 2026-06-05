@@ -296,8 +296,8 @@ int main(int argc, char** argv)
         return 1;
     }
     const std::string path = argv[1];
-    const int WARMUP = (argc > 2) ? std::atoi(argv[2]) : 20;
-    const int REPS = (argc > 3) ? std::atoi(argv[3]) : 50;
+    const int WARMUP = (argc > 2) ? std::atoi(argv[2]) : 2;
+    const int REPS = (argc > 3) ? std::atoi(argv[3]) : 10;
 
     std::cout << "=== TPC-H Query 1\n";
     std::cout << "Loading lineitem from: " << path << "\n";
@@ -424,7 +424,7 @@ int main(int argc, char** argv)
     std::sort(shipdate_sorted.begin(), shipdate_sorted.end());
 
     // Selectivity targets
-    const std::vector<double> targets = { 0.0001, 0.001, 0.01, 0.1, 0.25, 0.5, 0.75, 1.0 };
+    const std::vector<double> targets = {0.01}; //, 0.001, 0.01, 0.1, 0.25, 0.5, 0.75, 1.0
 
     std::vector<int> cutoffs;
     for (double s : targets) {
@@ -434,7 +434,7 @@ int main(int argc, char** argv)
     }
 
     // CSV output --------------------
-	std::ofstream csv("q1_result_sf.csv");
+    std::ofstream csv("q1_results_sf.csv");
     csv << "target_selectivity,cutoff_date,matched_cpu,matched_gpu,matched_error,achieved_selectivity,"
         << "kernel_ms_min,kernel_ms_median,kernel_ms_max,"
         << "total_execution_time_median,overhead_ms,overhead_percentage,"
@@ -661,7 +661,7 @@ int main(int argc, char** argv)
     }
 
     csv.close();
-    std::cout << "\nWrote q1_result_sf.csv\n";
+    std::cout << "\nWrote q1_results.csv\n";
     // ---------- Cleanup ----------
     clReleaseMemObject(d_quantity); 
     clReleaseMemObject(d_price);

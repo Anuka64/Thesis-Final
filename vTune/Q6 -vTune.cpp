@@ -358,8 +358,7 @@ int main(int argc, char** argv) {
         discount_sorted[i] = discount[indices[i]];
     }
 
-	const std::vector<double> targets = { 0.0001, 0.001, 0.01, 0.05, 0.1, 0.25 }; // removed 0.5 and 1,0 because it can not be reached.
-
+	const std::vector<double> targets = { 0.01 }; //0.001, 0.01, 0.05, 0.1, 0.25  check only one selevtivity for vTune.
     // ---------- OpenCL setup ----------
     cl_platform_id platform;
     CHECK_CL(clGetPlatformIDs(1, &platform, nullptr));
@@ -421,13 +420,13 @@ int main(int argc, char** argv) {
 
 
     // Warmup + repetitions
-    const int WARMUP = 20;
-    const int REPS = 50;
+    const int WARMUP = 2;
+    const int REPS = 10;
 
     std::vector<uint64_t> partials(num_groups);
 
     // ---------- Output CSV ----------
-    std::ofstream csv("q6_results_sf.csv");
+    std::ofstream csv("q6_results.csv");
     csv << "target_selectivity,window_days,start_day,end_day,matched_rows,achieved_selectivity,"
         << "kernel_ms_min,kernel_ms_median,kernel_ms_max,"
         << "total_execution_time_median,overhead_ms,overhead_percentage,"
@@ -517,7 +516,7 @@ int main(int argc, char** argv) {
         timings.reserve(REPS);
         for (int r = 0; r < REPS; r++) {
             timings.push_back(launch_once_detailed(lo_day, hi_day, partials));
-            sleep_ms(200);
+            //sleep_ms(20);
 
         }
         //sorted by kernel time

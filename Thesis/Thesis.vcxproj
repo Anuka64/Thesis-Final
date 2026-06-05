@@ -19,7 +19,7 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="Q1.cpp" />
+    <ClCompile Include="Q6 -vTune.cpp" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>18.0</VCProjectVersion>
@@ -128,7 +128,7 @@
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
-      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <GenerateDebugInformation>DebugFastLink</GenerateDebugInformation>
       <AdditionalLibraryDirectories>C:\Program Files (x86)\Intel\oneAPI\compiler\2025.3\lib</AdditionalLibraryDirectories>
       <AdditionalDependencies>OpenCL.lib</AdditionalDependencies>
     </Link>

@@ -263,8 +263,8 @@ int main(int argc, char** argv) {
     const std::string orders_path = argv[2];
     const std::string lineitem_path = argv[3];
 
-    const int WARMUP = (argc > 4) ? std::atoi(argv[4]) : 30;
-    const int REPS = (argc > 5) ? std::atoi(argv[5]) : 100;
+    const int WARMUP = (argc > 4) ? std::atoi(argv[4]) : 2;
+    const int REPS = (argc > 5) ? std::atoi(argv[5]) : 5;
 
     std::cout << "Loading customer from: " << customer_path << "\n";
     std::unordered_set<int32_t> building_custkeys;
@@ -388,11 +388,7 @@ int main(int argc, char** argv) {
     std::cout << "  Searching descending side only (dates after peak).\n";
 
 
-    const std::vector<double> targets = {
-        0.0025, 0.0050, 0.0075, 0.0100,
-        0.0125, 0.0150, 0.0175, 0.0200,
-        0.0225, 0.0250
-    };
+    const std::vector<double> targets = { 0.0100 }; // 0.0075, 0.0100, 0.0125, 0.0150, 0.0175, 0.0200,0.0250
 
     std::vector<int> cutoffs;
     for (double target_s : targets) {
@@ -410,7 +406,7 @@ int main(int argc, char** argv) {
     std::cout << "Calibration done.\n\n";
 
 	// CSV output setup
-    std::ofstream csv("q3_results_sf.csv");
+    std::ofstream csv("q3_results.csv");
     csv << "# cpu_join_preprocessing_ms=" << std::fixed << std::setprecision(3)
         << cpu_join_ms << ",pre_joined_rows=" << N << "\n";
     csv << "target_selectivity,cutoff_date,matched_rows,achieved_selectivity,"
@@ -493,7 +489,7 @@ int main(int argc, char** argv) {
         timings.reserve(REPS);
         for (int r = 0; r < REPS; r++) {
             timings.push_back(launch_once(cutoff_ymd));
-            sleep_ms(200);
+            //sleep_ms(200);
         }
 
         std::sort(timings.begin(), timings.end(), [](const TimingResult& a, const TimingResult& b) {

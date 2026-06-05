@@ -1,0 +1,2 @@
+target_selectivity,window_days,start_day,end_day,matched_rows,achieved_selectivity,kernel_ms_min,kernel_ms_median,kernel_ms_max,total_execution_time_median,overhead_ms,overhead_percentage,gpu_to_cpu_transfer_in_ms,cpu_reduction_time_in_ms,useful_data_MB,total_data_MB,estimated_bandwidth_GB_per_sec,cpu_result,gpu_result,abs_error_cents,rel_err
+0.010000000,71,8766,8837,303465,0.010115569,6.908489000,7.016770000,7.041302000,7.520500000,0.503730000,6.698091882,0.084900000,0.037000000,4.855440000,479.996720000,68.407076190,382569544.217583477,382569585.160000026,0,0.000000107

@@ -1,0 +1,3 @@
+# cpu_join_preprocessing_ms=38545.458,pre_joined_rows=6019629
+target_selectivity,cutoff_date,matched_rows,achieved_selectivity,kernel_ms_min,kernel_ms_median,kernel_ms_max,total_execution_time_median,cpu_join_preprocessing_ms,total_with_preprocessing_ms,overhead_ms,overhead_percentage,gpu_to_cpu_transfer_in_ms,cpu_reduction_time_in_ms,useful_data_MB,total_data_MB,estimated_bandwidth_GB_per_sec,validation_cpu_result,validation_gpu_result,abs_err_cents,rel_err
+0.025000000,1997-06-29,150491,0.025000046,1.311875000,1.342916000,1.343645000,1.670900000,38545.457800000,38547.128700000,0.327984000,19.629181878,0.020100000,0.003200000,2.407856000,96.314064000,71.720095672,5477862792.579679489,5477863006.949999809,1204,0.000000039
